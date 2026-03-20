@@ -960,10 +960,12 @@ dependencies = [
 name = "outpunch-client"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "base64",
  "clap",
  "futures-util",
  "outpunch",
+ "outpunch-axum",
  "reqwest",
  "serde",
  "serde_json",
