@@ -18,6 +18,23 @@ crates/
 
 ## Core Crate (`outpunch`)
 
+### Why the Core Exists
+
+The tunnel has two routing problems — two sides of the same coin:
+
+1. **Inbound (service routing)**: an HTTP request arrives at the server — which *client* should handle it? Solved by the service name in the URL path.
+2. **Outbound (response matching)**: a response arrives on the WebSocket — which *HTTP handler* is waiting for it? Solved by matching the `request_id`.
+
+Both happen over the same WebSocket connection. Multiple HTTP requests can be in-flight simultaneously, all waiting for responses. Even with a single client and a single service, two users hitting the tunnel endpoint at the same time need their responses delivered to the right caller.
+
+The **pending request map** is what makes response matching work. When an HTTP request arrives, the core assigns a unique `request_id`, parks a waiting handler in the map, and sends the request over the WebSocket. When a response comes back, the core looks up the `request_id`, finds the right waiting handler, and delivers the response. If no response arrives, the core times out and cleans up.
+
+This coordination has real concurrency hazards: race conditions between timeouts and responses arriving simultaneously, cleanup when a client disconnects mid-request, atomic connection state transitions so a stale disconnect doesn't clobber a fresh connection. Getting this wrong means hung requests, leaked resources, or silent data loss.
+
+Writing this once in Rust — where the type system enforces thread safety and ownership — means every adapter and every language binding inherits correct behavior. The alternative is reimplementing this coordination logic in every language, with each implementation carrying its own concurrency bugs.
+
+Everything else the core provides (protocol types, auth, header filtering) is straightforward. The request/response coordination is the reason the core exists.
+
 ### Framework-Free Types
 
 The core defines its own request and response types using only basic Rust types — `String`, `HashMap`, `u16`, etc. No framework dependencies, no framework traits, no borrowed lifetimes tied to a specific HTTP library.
@@ -56,33 +73,54 @@ The core owns:
 - Auth validation (constant-time shared secret comparison)
 - Header filtering (strip hop-by-hop headers)
 
-The core does **not** own: HTTP routing, WebSocket upgrade mechanics, or anything framework-specific.
+The core does **not** own: HTTP routing, WebSocket upgrade mechanics, WebSocket I/O, or anything framework- or library-specific.
+
+### Channel-Based WebSocket Interface
+
+The core never touches a WebSocket type directly. Instead, it communicates through **message channels** — it receives incoming messages from one channel and sends outgoing messages through another:
+
+```rust
+// The core's interface for a WebSocket connection
+server.handle_connection(incoming_rx, outgoing_tx).await;
+```
+
+The core reads strings from `incoming_rx` and writes strings to `outgoing_tx`. It doesn't know or care what's on the other end — tungstenite, a Python WebSocket library, a Ruby one, or a test harness feeding it fake messages.
+
+**This is what makes outpunch truly multi-language.** The adapter (or language binding) is responsible for bridging the actual WebSocket to these channels:
+
+- **Rust adapter (e.g., axum)**: upgrades HTTP → tungstenite `WebSocketStream`, runs a small bridge loop (~10 lines) that reads from the stream into `incoming_tx` and writes from `outgoing_rx` to the stream.
+- **Python binding**: reads from Python's WS library, feeds messages through FFI into `incoming_tx`. Same in reverse.
+- **Ruby binding**: same pattern with Ruby's WS library.
+- **Test harness**: feeds scripted messages directly into the channels — no network needed.
+
+The bridge loop is mechanical boilerplate. All the logic — auth, message routing, pending request matching, timeouts — lives in the core, operating on plain strings through channels.
 
 ## Server Framework Adapter
 
-The adapter is the only part of outpunch that touches a web framework. It handles two HTTP-level concerns and nothing else:
+The adapter is the only part of outpunch that touches a web framework. It handles two HTTP-level concerns and a WebSocket bridge:
 
 1. **Tunnel endpoint** (`/tunnel/*path`) — translates the framework's HTTP request into a `TunnelRequest`, calls the core, translates the `TunnelResponse` back into the framework's HTTP response.
-2. **WebSocket upgrade** (`/ws`) — uses the framework's upgrade mechanism to establish a WebSocket connection, then hands the raw stream to the core.
+2. **WebSocket upgrade** (`/ws`) — uses the framework's upgrade mechanism to establish a WebSocket connection.
+3. **WebSocket bridge** — a small loop that pipes messages between the framework's WebSocket stream and the core's message channels.
 
-**After the WebSocket upgrade, the adapter is no longer involved.** The core owns the WebSocket connection entirely — authentication, message routing, pending request tracking, heartbeat. The adapter only exists at the HTTP boundary.
+After the bridge is set up, the adapter is no longer involved in the WebSocket logic. The core handles authentication, message routing, pending request tracking, and heartbeat through the channels. The adapter only exists at the HTTP boundary.
 
-This is why adapters stay thin (~20-50 lines): they're just type translation. All logic lives in the core.
+This is why adapters stay thin: they're type translation plus a bridge loop. All logic lives in the core.
 
 For example, `outpunch-axum` would:
 
 - Provide an axum `Router` with the catch-all `/tunnel/*path` route and `/ws` upgrade endpoint
 - Convert `axum::extract::Request` → `TunnelRequest`
 - Convert `TunnelResponse` → `axum::response::Response`
-- On WS upgrade: hand the resulting `WebSocket` stream to the core
+- On WS upgrade: bridge the tungstenite stream to the core's message channels
 
 The standalone server binary uses `outpunch-axum` internally — it's the same adapter a user would use to embed outpunch in their own axum app.
 
-Adding support for a new Rust framework (e.g., actix-web) means writing a new adapter crate. No core changes.
+Adding support for a new framework or language means writing a new adapter. No core changes.
 
 ## Language Bindings (Future)
 
-Each language binding (via UniFFI or similar) exposes the core, and per-framework adapters follow the same pattern:
+Each language binding (via UniFFI or similar) exposes the core, and per-framework adapters follow the same pattern — translate HTTP types and bridge WebSocket messages:
 
 | Language | Adapter | Covers |
 |----------|---------|--------|
@@ -98,13 +136,15 @@ Each language binding (via UniFFI or similar) exposes the core, and per-framewor
 
 | Crate | Role | Used by |
 |-------|------|---------|
-| `tokio` | async runtime | core, server, client |
+| `tokio` | async runtime (including message channels) | core, server, client |
 | `serde` / `serde_json` | protocol serialization | core |
 | `uuid` | request ID generation | core |
-| `tokio-tungstenite` | WebSocket client (outbound tunnel connection) | client binary |
+| `tokio-tungstenite` | WebSocket (server bridge + client connection) | axum adapter, client binary |
 | `reqwest` | HTTP client (forwarding requests to local services) | client binary |
 
-The first server framework adapter will target **axum**. The core itself has no framework dependency — additional adapters (actix-web, etc.) can be added later without core changes.
+Note: `tokio-tungstenite` is **not** a dependency of the core — only of adapters and the client binary. The core communicates through tokio channels only.
+
+The first server framework adapter will target **axum**. The core itself has no framework or WebSocket library dependency — additional adapters can be added later without core changes.
 
 ## Standalone vs Embedded
 

@@ -141,14 +141,15 @@ Rust. The core logic (protocol, connection management, request/response lifecycl
 
 ### Works With Any Web Framework
 
-The core library has **zero web framework dependencies**. It works entirely with its own plain types — strings, maps, integers. This means outpunch is not tied to any specific HTTP server or WebSocket library.
+The core library has **zero web framework dependencies** and **zero WebSocket library dependencies**. It works entirely with its own plain types (strings, maps, integers) and communicates through message channels. This means outpunch is not tied to any specific HTTP server or WebSocket library — in any language.
 
-To embed outpunch in a web app, you use a **server framework adapter** — a thin layer (~20-50 lines) that translates between the framework's HTTP types and outpunch's types. The adapter handles only two HTTP-level concerns:
+To embed outpunch in a web app, you use a **server framework adapter** — a thin layer that translates between the framework's types and outpunch's types. The adapter handles:
 
 1. **Tunnel endpoint** — translate the framework's HTTP request/response to/from outpunch types
-2. **WebSocket upgrade** — use the framework's upgrade mechanism, then hand the raw connection to the core
+2. **WebSocket upgrade** — use the framework's upgrade mechanism to establish a connection
+3. **WebSocket bridge** — pipe messages between the WebSocket stream and the core's message channels
 
-After the WebSocket upgrade, the adapter is out of the picture. The core owns the connection entirely.
+The core never touches a WebSocket type directly. The adapter bridges WebSocket I/O into the core's channels. This is what makes outpunch truly multi-language — any language's WebSocket library can feed messages into the same channel interface.
 
 This applies at every level:
 

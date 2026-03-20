@@ -1,29 +1,13 @@
 # CLAUDE.md
 
-## What This Is
+Outpunch is a reverse WebSocket tunnel proxy written in Rust. It lets you expose services on a private network through a public-facing server without opening inbound ports. A client on the private network connects outbound via WebSocket to the server, which relays HTTP requests through the tunnel and returns responses. The core is a framework-agnostic Rust library that handles all tunnel logic — protocol parsing, request/response coordination, connection state, authentication — through plain types and message channels, with no dependency on any web framework or WebSocket library.
 
-Outpunch is a Rust implementation of the reverse WebSocket tunnel proxy pattern described in `docs/tunnel-proxy.md`. The goal is a single Rust codebase that implements **both sides** of the tunnel:
+The project ships a standalone server binary, a standalone client binary, and thin server framework adapters (axum first) that translate between a web framework's types and the core. The same adapter pattern extends to language bindings (Python, Ruby, Node.js via UniFFI) so each language gets a thin wrapper, not a reimplementation. The project is in the planning/documentation phase — no Rust implementation yet.
 
-- **Server** — the public-facing proxy that accepts HTTP requests, shuttles them through a WebSocket tunnel, and returns responses. (Currently implemented in Ruby/Rails in production.)
-- **Client** — the private-server agent that connects outbound via WebSocket, receives proxied requests, forwards them to local services, and returns responses. (Currently implemented in Python in `tunnel-client/`.)
+## Documentation
 
-## Why Rust
-
-The Python tunnel client works but is too thick — it reimplements protocol logic, connection management, and HTTP forwarding that should live in a shared core. The Ruby server side is tied to Rails/ActionCable. A Rust core lets us:
-
-1. Write the tunnel logic once, correctly
-2. Ship a standalone Rust server and client first
-3. Later expose bindings to other languages (Python, Ruby, Node.js) via UniFFI or similar, so each language gets a thin wrapper — not a full reimplementation
-
-## Current State
-
-- `docs/tunnel-proxy.md` — full design doc with architecture, protocol spec, and reference Ruby implementation
-- `tunnel-client/` — production Python tunnel client (multi-service, Docker Swarm deployment)
-- No Rust code yet. Project is in the research/planning phase.
-
-## Open Questions
-
-- **Server-side integration**: How does the Rust server component integrate with different web frameworks? Middleware? Plugin? Standalone sidecar process? Framework-specific vs framework-agnostic?
-- **Binding strategy**: UniFFI (Mozilla) is the leading candidate for multi-language bindings. Diplomat is an alternative. Need to research tradeoffs for this specific use case.
-- **Protocol**: Should we keep ActionCable compatibility or define a simpler raw WebSocket protocol (as sketched in the docs' "Simplified Protocol" section)?
-- **Scope of bindings**: What surface area do language bindings expose — just "start a client/server" or granular access to protocol types, message parsing, etc.?
+- [docs/product.md](docs/product.md) — Product overview, deployment modes, protocol spec, authentication model, integration strategy
+- [docs/architecture.md](docs/architecture.md) — Crate structure, core design (why it exists, plain types, channel-based WS interface), server framework adapter pattern, dependencies
+- [docs/testing.md](docs/testing.md) — Testing strategy: adapter conformance suite, core unit tests, integration tests, failure/edge cases, fuzz testing
+- [docs/glossary.md](docs/glossary.md) — Term definitions: core, server framework adapter, tunnel client, tunnel request/response, standalone/embedded modes
+- [docs/tunnel-proxy.md](docs/tunnel-proxy.md) — Original design doc with full architecture, protocol spec, and reference Ruby/Python implementation
