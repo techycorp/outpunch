@@ -2,7 +2,30 @@
 
 Outpunch is a reverse WebSocket tunnel proxy written in Rust. It lets you expose services on a private network through a public-facing server without opening inbound ports. A client on the private network connects outbound via WebSocket to the server, which relays HTTP requests through the tunnel and returns responses. The core is a framework-agnostic Rust library that handles all tunnel logic — protocol parsing, request/response coordination, connection state, authentication — through plain types and message channels, with no dependency on any web framework or WebSocket library.
 
-The project ships a standalone server binary, a standalone client binary, and thin server framework adapters (axum first) that translate between a web framework's types and the core. The same adapter pattern extends to language bindings (Python, Ruby, Node.js via UniFFI) so each language gets a thin wrapper, not a reimplementation. The project is in the planning/documentation phase — no Rust implementation yet.
+The project ships a standalone server binary, a standalone client binary, and thin server framework adapters (axum first) that translate between a web framework's types and the core. The same adapter pattern extends to language bindings (Python, Ruby, Node.js via UniFFI) so each language gets a thin wrapper, not a reimplementation.
+
+## Conventions
+
+### Test files are separate from source files
+
+Unit tests go in `_tests.rs` files next to the source, not inline. This allows opening tests and code side-by-side in editor tabs.
+
+```
+src/
+  protocol.rs           # code
+  protocol_tests.rs     # tests
+```
+
+The source file links to the test file at the bottom:
+```rust
+#[cfg(test)]
+#[path = "protocol_tests.rs"]
+mod tests;
+```
+
+### Dependencies
+
+Always use the package manager (`cargo add`, `cargo remove`) to manage dependencies. Never hand-edit Cargo.toml dependency sections.
 
 ## Documentation
 
