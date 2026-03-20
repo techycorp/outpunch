@@ -168,7 +168,9 @@ The standalone Rust server and client ship first. Bindings come later.
 
 ## Open Questions
 
-- **Binary body encoding**: the current implementation base64-encodes response bodies. Should the protocol support binary WebSocket frames instead?
-- **Service authorization**: should outpunch enforce which services a given client is allowed to register for, or is the shared secret sufficient?
-- **Multiple clients**: can multiple clients connect for the same service (load balancing)? Or is it one client per service?
-- **TLS/mTLS**: should outpunch support mutual TLS for client authentication as an alternative to shared secrets?
+See [future.md](future.md) for deferred work and open tradeoffs, including:
+
+- Binary body encoding (base64 vs binary WebSocket frames)
+- Service authorization (scoped tokens beyond shared secret)
+- Multiple clients per service (load balancing tradeoffs — tunnel vs load balancer responsibilities)
+- TLS/mTLS (mutual TLS as alternative to shared secrets)
