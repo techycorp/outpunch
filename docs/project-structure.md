@@ -85,7 +85,7 @@ docs/
   project-structure.md   # This file
   testing.md             # Testing strategy
   testing-holes.md       # Known coverage gaps
-  phase1.md              # Phase 1 implementation plan
+  phases.md              # Implementation phases
   future.md              # Future work and open questions
   glossary.md            # Term definitions
   tunnel-proxy.md        # Original design doc
