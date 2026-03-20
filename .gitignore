@@ -4,3 +4,11 @@ tunnel-client/
 # Added by cargo
 
 /target
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.so
+*.pyd
+*.egg-info/

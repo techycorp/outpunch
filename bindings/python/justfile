@@ -1,0 +1,15 @@
+
+default:
+	@just --list
+
+build:
+	maturin build
+
+dev:
+	uv sync && maturin develop
+
+test:
+	uv run pytest
+
+test-verbose:
+	uv run pytest -v

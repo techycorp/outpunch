@@ -33,3 +33,13 @@ lint: fmt-check clippy
 
 coverage:
 	cargo tarpaulin --workspace --out stdout
+
+# Python bindings
+build-python:
+	just -f bindings/python/justfile build
+
+dev-python:
+	just -f bindings/python/justfile dev
+
+test-python:
+	just -f bindings/python/justfile test

@@ -1,0 +1,14 @@
+[package]
+name = "outpunch-python"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+outpunch-client = { version = "0.1.0", path = "../../crates/outpunch-client" }
+pyo3 = { version = "0.28.2", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.28.0", features = ["tokio-runtime"] }
+tokio = { version = "1.50.0", features = ["full"] }
