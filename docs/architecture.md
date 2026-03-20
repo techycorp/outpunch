@@ -130,6 +130,89 @@ Each language binding (via UniFFI or similar) exposes the core, and per-framewor
 | Node.js | `outpunch-express` | Express |
 | Node.js | `outpunch-hono` | Hono |
 
+## Core Server API
+
+The adapter-facing API has three functions:
+
+### `OutpunchServer::new(config)`
+
+Creates the server with a shared secret and request timeout.
+
+```rust
+let server = OutpunchServer::new(ServerConfig {
+    secret: "shared-secret".into(),
+    timeout: Duration::from_secs(25),
+});
+```
+
+### `server.handle_request(request)`
+
+Called by the adapter when an HTTP request hits `/tunnel/*path`. The adapter translates the framework's request into an `IncomingRequest` (service, method, path, query, headers, body — no `request_id`).
+
+The core:
+1. Looks up the service in the service map → if no client, returns 502 immediately
+2. Generates a `request_id`
+3. Parks a handler in the pending request map
+4. Sends the `TunnelRequest` (with `request_id`) through the client's channel
+5. Waits for a response (or timeout → 504)
+6. Returns a `TunnelResponse` to the adapter
+
+```rust
+let response: TunnelResponse = server.handle_request(IncomingRequest {
+    service: "my-service".into(),
+    method: "POST".into(),
+    path: "api/test".into(),
+    query: HashMap::new(),
+    headers: HashMap::new(),
+    body: Some("...".into()),
+}).await;
+```
+
+### `server.handle_connection(incoming_rx, outgoing_tx)`
+
+Called by the adapter after WebSocket upgrade and bridge setup. Runs for the lifetime of the connection.
+
+The core:
+1. Reads the first message from `incoming_rx` — expects auth with token and service name
+2. Validates the token → if invalid, sends error and returns
+3. Registers the service → connection mapping in the service map
+4. Loops: reads responses from `incoming_rx`, matches `request_id` to pending map, delivers responses
+5. On disconnect: removes service mapping, fails any pending requests for this client with 502
+
+```rust
+server.handle_connection(incoming_rx, outgoing_tx).await;
+```
+
+## Client Architecture
+
+The client is simpler — no adapters, no framework concerns. A standalone binary (phase 1) or embedded library (future).
+
+### `OutpunchClient::new(config)`
+
+```rust
+let client = OutpunchClient::new(ClientConfig {
+    server_url: "ws://localhost:3000/ws".into(),
+    secret: "shared-secret".into(),
+    service: "my-service".into(),
+    forward_to: "http://localhost:8080".into(),
+    reconnect_delay: Duration::from_secs(5),
+});
+```
+
+### `client.run()`
+
+Runs forever. Internally:
+
+1. Connect to server via tokio-tungstenite
+2. Send auth message with token and service name
+3. Wait for `auth_ok` (or disconnect on rejection)
+4. Loop: receive `TunnelRequest` from server, forward to local service via reqwest, send `TunnelResponse` back
+5. On disconnect: wait `reconnect_delay`, go to step 1
+
+```rust
+client.run().await; // runs until process exits
+```
+
 ## Rust Dependencies
 
 ### Decided

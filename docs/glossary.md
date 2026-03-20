@@ -20,9 +20,13 @@ Each adapter is small and specific to one framework. Examples: `outpunch-axum` (
 
 The outpunch client binary. Runs on the private network, connects outbound via WebSocket to the server, receives proxied HTTP requests, forwards them to local services, and sends responses back. No framework compatibility concerns — it's always a standalone process.
 
+## Incoming Request
+
+What the adapter passes to the core: service, method, path, query, headers, body. No `request_id` — the core generates that. This is the boundary type between the adapter and the core.
+
 ## Tunnel Request
 
-A plain data struct representing an HTTP request to be proxied through the tunnel. Contains: `request_id`, `service`, `method`, `path`, `query`, `headers`, `body`. Used as both the core's internal type and the JSON message sent over the WebSocket.
+The wire protocol type sent over the WebSocket from server to client. Contains: `request_id`, `service`, `method`, `path`, `query`, `headers`, `body`. Built by the core from an `IncomingRequest` plus a generated `request_id`. Adapters never see this type.
 
 ## Tunnel Response
 
