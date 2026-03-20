@@ -1,6 +1,6 @@
-# Outpunch — Phase 1: Embedded Mode
+# Outpunch — Phase 1: Embedded Mode (Complete)
 
-Phase 1 proves the core tunnel works end-to-end in embedded mode. One server, one client, one service, minimal scope.
+Phase 1 proves the core tunnel works end-to-end in embedded mode. One server, one client, one service, minimal scope. Implemented and tested — 77 Rust tests, 94% coverage.
 
 ## Goal
 

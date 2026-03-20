@@ -13,32 +13,34 @@ All three are workspace members in the root `Cargo.toml`. The core has zero fram
 
 ## Language Bindings
 
-Each language binding lives in `bindings/<language>/` with its own package manifest, build config, and a thin Rust FFI crate that wraps `outpunch-client`.
+Each language binding lives in `bindings/<language>/` with its own package manifest, build config, and a Rust FFI crate that wraps `outpunch-client`. The FFI crate and package config live at the binding root (following uv/maturin conventions), with Rust source in `src/` alongside the Python package directory.
 
 ```
 bindings/
-  python/
-    pyproject.toml           # Python package config (built by Maturin)
-    src/outpunch_client/     # Python package
-      __init__.py
-    rust/
-      Cargo.toml             # PyO3 crate, depends on outpunch-client
-      src/lib.rs             # PyO3 glue
+  python/                      # Python binding (implemented)
+    Cargo.toml                 # PyO3 FFI crate (workspace member)
+    pyproject.toml             # uv + Maturin config
+    justfile                   # build/dev/test commands
+    src/
+      lib.rs                   # PyO3 glue code
+      lib_tests.rs             # Rust-side unit tests
+      outpunch/                # Python package
+        __init__.py            # Re-exports from _core
+        _core.pyi              # Type stubs for editors
+        py.typed               # PEP 561 marker
+    tests/
+      test_config.py           # Python unit tests
+      test_run.py              # Python integration tests
 
-  node/
-    package.json             # npm package config
-    index.js
-    index.d.ts               # Auto-generated TypeScript types
-    rust/
-      Cargo.toml             # Napi-RS crate, depends on outpunch-client
-      src/lib.rs             # Napi-RS glue
+  node/                        # Node.js binding (planned)
+    package.json
+    Cargo.toml                 # Napi-RS crate
+    src/lib.rs
 
-  ruby/
-    outpunch_client.gemspec  # Gem config
-    lib/outpunch_client/     # Ruby package
-    ext/outpunch_client/
-      Cargo.toml             # Magnus crate, depends on outpunch-client
-      src/lib.rs             # Magnus glue
+  ruby/                        # Ruby binding (planned)
+    outpunch.gemspec
+    Cargo.toml                 # Magnus crate
+    ext/outpunch/src/lib.rs
 ```
 
 ### How it works

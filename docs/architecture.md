@@ -11,10 +11,13 @@ Framework integration happens through **thin adapter crates** that translate bet
 ```
 crates/
   outpunch/              # core library — protocol types, pending request map, WS handling
-  outpunch-server/       # standalone server binary (uses outpunch-axum internally)
-  outpunch-client/       # standalone client binary
   outpunch-axum/         # adapter: axum types <-> outpunch types
+  outpunch-client/       # client library + binary
+bindings/
+  python/                # Python bindings via PyO3
 ```
+
+See [project-structure.md](project-structure.md) for the full layout including language bindings.
 
 ## Core Crate (`outpunch`)
 
@@ -118,17 +121,17 @@ The standalone server binary uses `outpunch-axum` internally — it's the same a
 
 Adding support for a new framework or language means writing a new adapter. No core changes.
 
-## Language Bindings (Future)
+## Language Bindings
 
-Each language binding (via UniFFI or similar) exposes the core, and per-framework adapters follow the same pattern — translate HTTP types and bridge WebSocket messages:
+Client bindings use per-language FFI tools rather than a single generator — each language has a mature, async-capable tool that provides the best developer experience:
 
-| Language | Adapter | Covers |
-|----------|---------|--------|
-| Ruby | `outpunch-rack` | Rails, Sinatra, any Rack app |
-| Python | `outpunch-asgi` | Django, FastAPI, Starlette |
-| Python | `outpunch-wsgi` | Flask |
-| Node.js | `outpunch-express` | Express |
-| Node.js | `outpunch-hono` | Hono |
+| Language | FFI Tool | Async Bridging | Status |
+|----------|----------|----------------|--------|
+| Python | PyO3 + pyo3-async-runtimes | Rust async → Python awaitable | Implemented |
+| Node.js | Napi-RS | Rust async → JS Promise | Planned |
+| Ruby | Magnus + rb-sys | Manual reactor pattern (GVL release + channel) | Planned |
+
+Server-side adapters for other languages (Rails, Django, Express) are written natively in each language, not via FFI. See [project-structure.md](project-structure.md) for details.
 
 ## Core Server API
 

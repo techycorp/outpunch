@@ -14,12 +14,8 @@ These are defensive `break` statements in the WebSocket bridge loop that fire du
 
 - **Line 128** — `ws_sink.send` fails. The client's TCP connection dropped mid-write. Requires the client to disconnect at exactly the moment the server is writing a message — a network-level race condition.
 
-## Client Binary (entire file)
+## Client Binary (thin CLI wrapper)
 
 `crates/outpunch-client/src/main.rs` — 0% coverage
 
-Tarpaulin can't instrument the client binary because it runs as a separate process. The client's logic is exercised indirectly by the integration tests (which simulate a client via WebSocket), but the actual binary code paths — CLI parsing, reconnection loop, reqwest HTTP forwarding — are not counted.
-
-Options to improve this in the future:
-- Extract the client logic into a library crate with its own unit tests, leaving `main.rs` as a thin CLI wrapper
-- Use an end-to-end test that spawns the actual binary and measures coverage via `LLVM_PROFILE_FILE`
+The client was refactored into a library (`lib.rs`, 92% coverage) + thin CLI wrapper (`main.rs`). The wrapper is just clap arg parsing → `ClientConfig` → `outpunch_client::run()`. Tarpaulin can't instrument the binary since it runs as a separate process, but the actual logic is tested through the library.

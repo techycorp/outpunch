@@ -25,17 +25,16 @@ A single client registers for and forwards to multiple services. Already in the 
 
 ## Language Bindings
 
-Expose the core via UniFFI (or similar) to Python, Ruby, and Node.js. Each binding is a thin wrapper around the Rust core.
+Client bindings use per-language FFI tools (not UniFFI — its Node.js support is experimental and Ruby support is deprecated). Python bindings via PyO3 are implemented. Remaining:
 
-**Client bindings are the highest priority.** The typical use case: your service is written in Python/Ruby/Node, and you want to embed the outpunch client directly in your app as a library — no separate process, no sidecar. Your app starts up, the embedded client opens the tunnel connection, and requests flow in. This is the client-side equivalent of embedded mode on the server.
+- **Node.js** (Napi-RS): mature, first-class async → Promise support, used by SWC/Rspack
+- **Ruby** (Magnus + rb-sys): mature for sync, async requires manual reactor pattern (GVL release + tokio channel, proven by Temporal SDK)
 
-The server side also gets bindings, with per-framework adapters:
+Server-side adapters for other languages are written natively in each language:
 
 - Ruby: `outpunch-rack` (Rails, Sinatra)
 - Python: `outpunch-asgi` (Django, FastAPI), `outpunch-wsgi` (Flask)
 - Node.js: `outpunch-express`, `outpunch-hono`
-
-But the client bindings are what most users will reach for first — the server side can run standalone or in Rust while the client needs to live inside whatever language the private service is written in.
 
 ## Additional Rust Adapters
 
