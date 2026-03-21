@@ -35,4 +35,5 @@ Always use the package manager (`cargo add`, `cargo remove`) to manage dependenc
 - [docs/glossary.md](docs/glossary.md) — Term definitions: core, server framework adapter, tunnel client, tunnel request/response, standalone/embedded modes
 - [docs/project-structure.md](docs/project-structure.md) — Repo layout: Rust crates, language bindings directory structure, FFI tools per language, build/release strategy
 - [docs/phases.md](docs/phases.md) — Implementation phases: Phase 1 (core + axum + client), Phase 2 (Python bindings)
+- [docs/javascript-frameworks.md](docs/javascript-frameworks.md) — JS server adapter strategy: Napi-RS bindings, http.Server core, framework wrappers (Vite, Express, etc.)
 - [docs/tunnel-proxy.md](docs/tunnel-proxy.md) — Original design doc with full architecture, protocol spec, and reference Ruby/Python implementation

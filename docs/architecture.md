@@ -78,33 +78,41 @@ The core owns:
 
 The core does **not** own: HTTP routing, WebSocket upgrade mechanics, WebSocket I/O, or anything framework- or library-specific.
 
-### Channel-Based WebSocket Interface
+### Connection-Based WebSocket Interface
 
-The core never touches a WebSocket type directly. Instead, it communicates through **message channels** — it receives incoming messages from one channel and sends outgoing messages through another:
+The core never touches a WebSocket type directly. Instead, it provides a `Connection` object that adapters interact with through simple method calls:
 
 ```rust
-// The core's interface for a WebSocket connection
-server.handle_connection(incoming_rx, outgoing_tx).await;
+// Adapter creates a connection
+let connection = server.create_connection();
+
+// Adapter pushes incoming WS messages into the connection
+connection.push_message(text).await;
+
+// Adapter registers a callback for outgoing messages
+connection.on_message(|msg| { /* send on WS */ });
+
+// Core runs the connection lifecycle (auth, request routing, etc.)
+connection.run().await;
 ```
 
-The core reads strings from `incoming_rx` and writes strings to `outgoing_tx`. It doesn't know or care what's on the other end — tungstenite, a Python WebSocket library, a Ruby one, or a test harness feeding it fake messages.
+The `Connection` owns the message channels internally. The adapter doesn't create or manage channels — it just calls `push_message` when a WS message arrives and handles `on_message` callbacks to send messages back. It doesn't know or care what's happening inside — auth, pending request matching, timeouts are all handled by the core.
 
-**This is what makes outpunch truly multi-language.** The adapter (or language binding) is responsible for bridging the actual WebSocket to these channels:
+**This is what makes outpunch truly multi-language.** The adapter (or FFI binding) only needs to wrap two methods:
 
-- **Rust adapter (e.g., axum)**: upgrades HTTP → tungstenite `WebSocketStream`, runs a small bridge loop (~10 lines) that reads from the stream into `incoming_tx` and writes from `outgoing_rx` to the stream.
-- **Python binding**: reads from Python's WS library, feeds messages through FFI into `incoming_tx`. Same in reverse.
-- **Ruby binding**: same pattern with Ruby's WS library.
-- **Test harness**: feeds scripted messages directly into the channels — no network needed.
+- **Rust adapter (e.g., axum)**: calls `push_message` from the WS read loop, sends messages from `on_message` to the WS write side.
+- **JS adapter (via Napi-RS)**: wraps `push_message` as a method call, wraps `on_message` as a `ThreadsafeFunction` callback. Two thin bindings.
+- **Test harness**: calls `push_message` directly with scripted messages — no network needed.
 
-The bridge loop is mechanical boilerplate. All the logic — auth, message routing, pending request matching, timeouts — lives in the core, operating on plain strings through channels.
+All logic — auth, message routing, pending request matching, timeouts — lives inside the `Connection`, behind a simple push/callback interface.
 
 ## Server Framework Adapter
 
 The adapter is the only part of outpunch that touches a web framework. It handles two HTTP-level concerns and a WebSocket bridge:
 
-1. **Tunnel endpoint** (`/tunnel/*path`) — translates the framework's HTTP request into a `TunnelRequest`, calls the core, translates the `TunnelResponse` back into the framework's HTTP response.
+1. **Tunnel endpoint** (`/tunnel/*path`) — translates the framework's HTTP request into an `IncomingRequest`, calls `server.handle_request()`, translates the `TunnelResponse` back into the framework's HTTP response.
 2. **WebSocket upgrade** (`/ws`) — uses the framework's upgrade mechanism to establish a WebSocket connection.
-3. **WebSocket bridge** — a small loop that pipes messages between the framework's WebSocket stream and the core's message channels.
+3. **WebSocket bridge** — pipes WS messages into `connection.push_message()` and sends `on_message` callbacks back through the WS. No channel management — the `Connection` handles that internally.
 
 After the bridge is set up, the adapter is no longer involved in the WebSocket logic. The core handles authentication, message routing, pending request tracking, and heartbeat through the channels. The adapter only exists at the HTTP boundary.
 
