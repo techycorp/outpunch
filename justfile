@@ -43,3 +43,10 @@ dev-python:
 
 test-python:
 	just -f bindings/python/justfile test
+
+# Node.js bindings
+build-node:
+	just -f bindings/node/justfile build
+
+test-node:
+	just -f bindings/node/justfile test

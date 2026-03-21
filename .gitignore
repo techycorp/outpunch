@@ -12,3 +12,7 @@ __pycache__/
 *.so
 *.pyd
 *.egg-info/
+
+# Node.js
+node_modules/
+*.node

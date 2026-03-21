@@ -1,0 +1,15 @@
+
+default:
+	@just --list
+
+build:
+	npx napi build --release
+
+build-debug:
+	npx napi build
+
+test: build-debug
+	npx vitest run
+
+test-verbose: build-debug
+	npx vitest run --reporter=verbose
