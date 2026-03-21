@@ -31,6 +31,8 @@ clippy:
 
 lint: fmt-check clippy
 
+test-all: test test-python test-node
+
 coverage:
 	cargo tarpaulin -p outpunch -p outpunch-axum -p outpunch-client --out stdout
 
