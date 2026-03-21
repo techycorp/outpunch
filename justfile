@@ -32,7 +32,7 @@ clippy:
 lint: fmt-check clippy
 
 coverage:
-	cargo tarpaulin --workspace --out stdout
+	cargo tarpaulin -p outpunch -p outpunch-axum -p outpunch-client --out stdout
 
 # Python bindings
 build-python:
