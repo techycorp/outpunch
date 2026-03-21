@@ -1,44 +1,34 @@
 # outpunch
 
-Reverse WebSocket tunnel proxy — expose private services through a public server without opening inbound ports.
-
-A client on the private network connects **outbound** via WebSocket to the server. The server relays HTTP requests through the tunnel and returns responses. No inbound ports, no NAT config, no VPN.
+Reverse WebSocket tunnel proxy. One Rust core, any framework, any language.
 
 ```
-                    internet
-                       │
-    ┌──────────────────┼──────────────────┐
-    │  Public Server   │                  │
-    │  (axum, Vite,    │                  │
-    │   Express, etc.) │                  │
-    │                  │                  │
-    │  /tunnel/svc/* ──┤                  │
-    │                  │  WebSocket       │
-    │  /ws ────────────┤  (outbound       │
-    │                  │   from client)   │
-    └──────────────────┼──────────────────┘
-                       │
-    ┌──────────────────┼──────────────────┐
-    │  Private Network │                  │
-    │                  │                  │
-    │  outpunch-client ┤──► local service │
-    │                  │    (port 8080)   │
-    └──────────────────┴──────────────────┘
+HTTP request → public server → WebSocket tunnel → private service
 ```
+
+The core is a framework-agnostic Rust library — no web framework or WebSocket library dependency. Server adapters and client bindings are thin wrappers, not reimplementations.
+
+**Server adapters** — embed the tunnel in your existing app:
+
+| Framework | Integration | Status |
+|-----------|------------|--------|
+| Rust/axum | `outpunch_axum::router(server)` | Shipped |
+| Vite | `plugins: [outpunch({ secret })]` | Shipped |
+| Express | `app.use(outpunchMiddleware({ secret }))` | Planned |
+| Fastify | | Planned |
+
+**Client bindings** — connect from any language:
+
+| Language | Install | Status |
+|----------|---------|--------|
+| Rust | `cargo add outpunch-client` | Shipped |
+| Python | `pip install outpunch` | Shipped |
+| Node.js | `npm install outpunch` | Shipped |
+| Ruby | `gem install outpunch` | Planned |
 
 ## Quick Start
 
-### Server (Rust, embedded in axum)
-
-```rust
-let server = OutpunchServer::new(ServerConfig {
-    secret: "shared-secret".into(),
-    ..Default::default()
-});
-let app = outpunch_axum::router(server);
-```
-
-### Server (Vite plugin)
+### Server (Vite)
 
 ```ts
 import { outpunch } from 'outpunch/vite';
@@ -48,21 +38,17 @@ export default defineConfig({
 });
 ```
 
-### Client (Rust binary)
+### Server (Rust/axum)
 
-```sh
-outpunch-client \
-  --server-url ws://your-server.com/ws \
-  --secret shared-secret \
-  --service my-api \
-  --forward-to http://localhost:8080
+```rust
+let server = OutpunchServer::new(ServerConfig {
+    secret: "shared-secret".into(),
+    ..Default::default()
+});
+let app = outpunch_axum::router(server);
 ```
 
 ### Client (Python)
-
-```sh
-pip install outpunch
-```
 
 ```python
 from outpunch import ClientConfig, run
@@ -75,25 +61,15 @@ run(ClientConfig(
 ))
 ```
 
-## Architecture
+### Client (Rust)
 
-The core is a framework-agnostic Rust library. All tunnel logic — protocol parsing, request/response coordination, authentication — lives in the core using plain types and message channels. No web framework or WebSocket library dependency.
-
-**Server adapters** are thin layers (~50 lines) that translate between a framework's types and the core:
-
-| Adapter | Status |
-|---------|--------|
-| Rust/axum | Shipped |
-| Node.js/Vite | Shipped |
-| Node.js/Express | Planned |
-
-**Client bindings** wrap the Rust client library via per-language FFI tools:
-
-| Language | FFI Tool | Status |
-|----------|----------|--------|
-| Python | PyO3 | Shipped |
-| Node.js | Napi-RS | Shipped |
-| Ruby | Magnus | Planned |
+```sh
+outpunch-client \
+  --server-url ws://your-server.com/ws \
+  --secret shared-secret \
+  --service my-api \
+  --forward-to http://localhost:8080
+```
 
 ## Development
 
