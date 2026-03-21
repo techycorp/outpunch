@@ -12,7 +12,10 @@ __pycache__/
 *.so
 *.pyd
 *.egg-info/
+.pytest_cache/
 
 # Node.js
 node_modules/
 *.node
+dist/
+coverage/

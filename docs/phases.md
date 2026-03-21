@@ -4,6 +4,7 @@
 
 - [Phase 1: Embedded Mode](#phase-1-embedded-mode-complete) — Core tunnel, axum adapter, client binary
 - [Phase 2: Python Bindings](#phase-2-python-bindings-complete) — PyO3 + Maturin + uv
+- [Phase 3: JS Server Adapter](#phase-3-js-server-adapter-complete) — Connection API refactor, Napi-RS bindings, Vite plugin
 
 ---
 
@@ -112,3 +113,25 @@ run(config)
 - **Blocking `run()` as primary API**: the tunnel client runs forever, so blocking is the natural interface. Async `run_connection()` available for users who want connection lifecycle control.
 - **Tokio runtime managed by `pyo3-async-runtimes`**: lazy global runtime, no manual initialization needed.
 - **Package name `outpunch`**: `pip install outpunch`. Future server-side packages are `outpunch-django`, `outpunch-fastapi`, etc.
+
+---
+
+## Phase 3: JS Server Adapter (Complete)
+
+Refactored core to a `Connection` object API, wrapped it via Napi-RS for Node.js, and built an http.Server adapter with a Vite plugin. 37 JS tests, 98% line coverage.
+
+### What shipped
+
+- **Connection API refactor** — core exposes `create_connection()` returning a `Connection` with `push_message()`, `on_message()`, `close()`, `run()`. Adapters never touch channels directly.
+- **Napi-RS bindings** (`bindings/node/`): wraps `OutpunchServer` and `Connection` for Node.js. `ThreadsafeFunction` bridges `on_message` callbacks from tokio to the JS event loop.
+- **http.Server adapter** (`js/server.ts`): handles `/tunnel/:service/*path` HTTP requests and `/ws` WebSocket upgrades. Works with any Node.js framework.
+- **Vite plugin** (`js/vite.ts`): `configureServer` hook delegates to the http.Server adapter. One line: `plugins: [outpunch({ secret: '...' })]`.
+- **Configurable** tunnel prefix and WebSocket path.
+- **37 JS tests** via vitest: spike tests (Napi-RS bridge), http.Server adapter (all methods, headers, query params, body handling, concurrent requests, auth, custom options), Vite plugin integration.
+
+### Key decisions
+
+- **Connection owns channels** — `push_message`/`on_message` instead of raw `mpsc` endpoints. Makes FFI bindings thin.
+- **`close()` for lifecycle** — adapter calls `close()` when WebSocket disconnects, causing `run()` to exit.
+- **http.Server is the core JS layer** — Vite/Express/Fastify wrappers are ~10 lines each delegating to it.
+- **`ws` npm package** for WebSocket server — same library Vite uses internally.
