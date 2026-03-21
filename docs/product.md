@@ -162,9 +162,10 @@ Standalone mode (outpunch as its own process, host app reverse-proxies to it) is
 
 ### Bindings
 
-Language bindings (Python, Ruby, Node.js) are a future goal, built via UniFFI or similar. Each binding is a thin wrapper around the Rust core — not a reimplementation.
+Language bindings use per-language FFI tools — each is a thin wrapper around the Rust core, not a reimplementation.
 
-The standalone Rust server and client ship first. Bindings come later.
+- **Client bindings**: Python (PyO3), Node.js (Napi-RS) — shipped. Ruby (Magnus) — planned.
+- **Server adapters**: axum (Rust), Vite/http.Server (Node.js via Napi-RS) — shipped. Express, Fastify — planned.
 
 ## Open Questions
 
