@@ -23,16 +23,16 @@ impl Default for ServerConfig {
     }
 }
 
-/// Represents an active client connection.
-struct Connection {
+/// Internal handle stored in the services map for sending messages to a client.
+struct ServiceHandle {
     outgoing_tx: mpsc::Sender<String>,
 }
 
 /// Shared state for the outpunch server.
 struct ServerState {
     config: ServerConfig,
-    /// service name → active connection
-    services: HashMap<String, Connection>,
+    /// service name → active connection handle
+    services: HashMap<String, ServiceHandle>,
     /// request_id → oneshot sender to deliver the response
     pending: HashMap<String, oneshot::Sender<TunnelResponse>>,
 }
@@ -58,6 +58,25 @@ impl OutpunchServer {
 
     pub fn max_body_size(&self) -> usize {
         self.max_body_size
+    }
+
+    /// Create a new connection for a tunnel client.
+    pub fn create_connection(&self) -> Connection {
+        let (incoming_tx, incoming_rx) = mpsc::channel::<String>(64);
+        let (outgoing_tx, outgoing_rx) = mpsc::channel::<String>(64);
+
+        Connection {
+            inner: Arc::new(ConnectionInner {
+                server: self.clone(),
+                incoming_tx: std::sync::Mutex::new(Some(incoming_tx)),
+                callback: std::sync::Mutex::new(None),
+                run_state: std::sync::Mutex::new(Some(ConnectionRunState {
+                    incoming_rx,
+                    outgoing_rx,
+                    outgoing_tx,
+                })),
+            }),
+        }
     }
 
     /// Handle an incoming HTTP tunnel request. Returns a TunnelResponse.
@@ -104,32 +123,133 @@ impl OutpunchServer {
         }
     }
 
-    /// Handle a WebSocket connection from a tunnel client.
-    /// Runs for the lifetime of the connection.
-    /// Called by the adapter after WS upgrade + bridge setup.
-    pub async fn handle_connection(
-        &self,
-        mut incoming_rx: mpsc::Receiver<String>,
-        outgoing_tx: mpsc::Sender<String>,
-    ) {
-        // Step 1: Wait for auth message
-        let service = match self.handle_auth(&mut incoming_rx, &outgoing_tx).await {
+    /// Returns true if a client is connected for the given service.
+    pub async fn is_connected(&self, service: &str) -> bool {
+        let state = self.state.lock().await;
+        state.services.contains_key(service)
+    }
+
+    async fn cleanup_connection(&self, service: &str) {
+        let mut state = self.state.lock().await;
+        state.services.remove(service);
+    }
+}
+
+/// Constant-time string comparison to prevent timing attacks.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
+// --- Connection ---
+
+struct ConnectionRunState {
+    incoming_rx: mpsc::Receiver<String>,
+    outgoing_rx: mpsc::Receiver<String>,
+    outgoing_tx: mpsc::Sender<String>,
+}
+
+type MessageCallback = Box<dyn Fn(String) + Send + Sync>;
+
+struct ConnectionInner {
+    server: OutpunchServer,
+    incoming_tx: std::sync::Mutex<Option<mpsc::Sender<String>>>,
+    callback: std::sync::Mutex<Option<MessageCallback>>,
+    run_state: std::sync::Mutex<Option<ConnectionRunState>>,
+}
+
+/// A tunnel client connection. Created by `OutpunchServer::create_connection()`.
+///
+/// The adapter pushes incoming WebSocket messages via `push_message()`,
+/// registers a callback for outgoing messages via `on_message()`,
+/// and drives the connection lifecycle via `run()`.
+#[derive(Clone)]
+pub struct Connection {
+    inner: Arc<ConnectionInner>,
+}
+
+impl Connection {
+    /// Push an incoming WebSocket message into the connection.
+    pub async fn push_message(&self, text: String) {
+        let tx = {
+            let guard = self.inner.incoming_tx.lock().unwrap();
+            guard.as_ref().cloned()
+        };
+        if let Some(tx) = tx {
+            let _ = tx.send(text).await;
+        }
+    }
+
+    /// Register a callback for outgoing messages (messages to send on the WebSocket).
+    /// Must be called before `run()`.
+    pub fn on_message(&self, callback: impl Fn(String) + Send + Sync + 'static) {
+        *self.inner.callback.lock().unwrap() = Some(Box::new(callback));
+    }
+
+    /// Signal the connection to close. Causes `run()` to exit.
+    pub fn close(&self) {
+        self.inner.incoming_tx.lock().unwrap().take();
+    }
+
+    /// Run the connection lifecycle: auth, request relay, cleanup.
+    /// Blocks until the connection ends (via `close()` or channel drop).
+    /// Can only be called once.
+    pub async fn run(&self) {
+        let run_state = self
+            .inner
+            .run_state
+            .lock()
+            .unwrap()
+            .take()
+            .expect("run() can only be called once");
+
+        let callback = self.inner.callback.lock().unwrap().take();
+
+        let ConnectionRunState {
+            mut incoming_rx,
+            mut outgoing_rx,
+            outgoing_tx,
+        } = run_state;
+
+        // Spawn outgoing drain task: delivers messages via callback
+        let drain_handle = tokio::spawn(async move {
+            while let Some(msg) = outgoing_rx.recv().await {
+                if let Some(ref cb) = callback {
+                    cb(msg);
+                }
+            }
+        });
+
+        // Auth
+        let service = match self
+            .handle_auth(&mut incoming_rx, &outgoing_tx)
+            .await
+        {
             Some(service) => service,
-            None => return,
+            None => {
+                drop(outgoing_tx);
+                let _ = drain_handle.await;
+                return;
+            }
         };
 
-        // Step 2: Register service
+        // Register service
         {
-            let mut state = self.state.lock().await;
+            let mut state = self.inner.server.state.lock().await;
             state.services.insert(
                 service.clone(),
-                Connection {
+                ServiceHandle {
                     outgoing_tx: outgoing_tx.clone(),
                 },
             );
         }
 
-        // Step 3: Listen for responses
+        // Relay loop: read responses from the client
         while let Some(raw) = incoming_rx.recv().await {
             let msg = match protocol::parse_message(&raw) {
                 Ok(msg) => msg,
@@ -137,21 +257,17 @@ impl OutpunchServer {
             };
 
             if let Message::Response(response) = msg {
-                let mut state = self.state.lock().await;
+                let mut state = self.inner.server.state.lock().await;
                 if let Some(sender) = state.pending.remove(&response.request_id) {
                     let _ = sender.send(response);
                 }
             }
         }
 
-        // Step 4: Cleanup on disconnect
-        self.cleanup_connection(&service).await;
-    }
-
-    /// Returns true if a client is connected for the given service.
-    pub async fn is_connected(&self, service: &str) -> bool {
-        let state = self.state.lock().await;
-        state.services.contains_key(service)
+        // Cleanup
+        self.inner.server.cleanup_connection(&service).await;
+        drop(outgoing_tx);
+        let _ = drain_handle.await;
     }
 
     async fn handle_auth(
@@ -174,7 +290,7 @@ impl OutpunchServer {
         };
 
         let valid = {
-            let state = self.state.lock().await;
+            let state = self.inner.server.state.lock().await;
             constant_time_eq(&msg.token, &state.config.secret)
         };
 
@@ -194,26 +310,6 @@ impl OutpunchServer {
 
         Some(msg.service)
     }
-
-    async fn cleanup_connection(&self, service: &str) {
-        let mut state = self.state.lock().await;
-        state.services.remove(service);
-
-        // Fail any pending requests that were waiting on this service's connection
-        // We can't easily know which pending requests were for this service,
-        // but the oneshot senders will fail naturally when the connection drops.
-    }
-}
-
-/// Constant-time string comparison to prevent timing attacks.
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
 }
 
 #[cfg(test)]

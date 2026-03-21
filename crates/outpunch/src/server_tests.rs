@@ -9,6 +9,24 @@ fn test_config() -> ServerConfig {
     }
 }
 
+/// Helper: set up on_message callback that collects into a channel.
+fn collect_messages(connection: &Connection) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel(64);
+    connection.on_message(move |msg| {
+        let _ = tx.try_send(msg);
+    });
+    rx
+}
+
+fn auth_json(secret: &str, service: &str) -> String {
+    serde_json::to_string(&AuthMessage {
+        msg_type: "auth".to_string(),
+        token: secret.to_string(),
+        service: service.to_string(),
+    })
+    .unwrap()
+}
+
 #[test]
 fn constant_time_eq_matching() {
     assert!(constant_time_eq("secret", "secret"));
@@ -57,13 +75,13 @@ async fn handle_request_timeout_returns_504() {
     };
     let server = OutpunchServer::new(config);
 
-    // Register a fake connection that never responds
+    // Register a fake service handle that never responds
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
     {
         let mut state = server.state.lock().await;
         state
             .services
-            .insert("my-service".to_string(), Connection { outgoing_tx });
+            .insert("my-service".to_string(), ServiceHandle { outgoing_tx });
     }
 
     // Drain the outgoing channel so send doesn't block
@@ -88,13 +106,13 @@ async fn handle_request_timeout_returns_504() {
 async fn full_request_response_cycle() {
     let server = OutpunchServer::new(test_config());
 
-    // Set up a fake client connection
+    // Set up a fake service handle
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<String>(16);
     {
         let mut state = server.state.lock().await;
         state
             .services
-            .insert("my-service".to_string(), Connection { outgoing_tx });
+            .insert("my-service".to_string(), ServiceHandle { outgoing_tx });
     }
 
     let server_clone = server.clone();
@@ -142,25 +160,17 @@ async fn full_request_response_cycle() {
 #[tokio::test]
 async fn auth_valid_token_registers_service() {
     let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
 
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
 
-    // Send auth message
-    let auth = AuthMessage {
-        msg_type: "auth".to_string(),
-        token: "test-secret".to_string(),
-        service: "my-service".to_string(),
-    };
-    incoming_tx
-        .send(serde_json::to_string(&auth).unwrap())
-        .await
-        .unwrap();
+    // Close to end the connection loop after auth
+    connection.close();
 
-    // Drop sender to end the connection loop
-    drop(incoming_tx);
-
-    server.handle_connection(incoming_rx, outgoing_tx).await;
+    connection.run().await;
 
     // Should have received auth_ok
     let raw = outgoing_rx.recv().await.unwrap();
@@ -171,23 +181,16 @@ async fn auth_valid_token_registers_service() {
 #[tokio::test]
 async fn auth_invalid_token_rejects() {
     let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
 
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    connection
+        .push_message(auth_json("wrong-secret", "my-service"))
+        .await;
 
-    let auth = AuthMessage {
-        msg_type: "auth".to_string(),
-        token: "wrong-secret".to_string(),
-        service: "my-service".to_string(),
-    };
-    incoming_tx
-        .send(serde_json::to_string(&auth).unwrap())
-        .await
-        .unwrap();
+    connection.close();
 
-    drop(incoming_tx);
-
-    server.handle_connection(incoming_rx, outgoing_tx).await;
+    connection.run().await;
 
     let raw = outgoing_rx.recv().await.unwrap();
     let msg = protocol::parse_message(&raw).unwrap();
@@ -200,53 +203,36 @@ async fn auth_invalid_token_rejects() {
 #[tokio::test]
 async fn connection_cleanup_removes_service() {
     let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let _outgoing_rx = collect_messages(&connection);
 
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, _outgoing_rx) = mpsc::channel(16);
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
 
-    // Auth
-    let auth = AuthMessage {
-        msg_type: "auth".to_string(),
-        token: "test-secret".to_string(),
-        service: "my-service".to_string(),
-    };
-    incoming_tx
-        .send(serde_json::to_string(&auth).unwrap())
-        .await
-        .unwrap();
+    // Close to simulate disconnect
+    connection.close();
 
-    // Drop to simulate disconnect
-    drop(incoming_tx);
-
-    server.handle_connection(incoming_rx, outgoing_tx).await;
+    connection.run().await;
 
     // After connection ends, service should be removed
     assert!(!server.is_connected("my-service").await);
 }
 
 #[tokio::test]
-async fn handle_connection_routes_response_to_pending_request() {
+async fn connection_routes_response_to_pending_request() {
     let server = OutpunchServer::new(test_config());
-
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
 
     // Auth
-    let auth = AuthMessage {
-        msg_type: "auth".to_string(),
-        token: "test-secret".to_string(),
-        service: "my-service".to_string(),
-    };
-    incoming_tx
-        .send(serde_json::to_string(&auth).unwrap())
-        .await
-        .unwrap();
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
 
-    let server_clone = server.clone();
+    let conn_clone = connection.clone();
     let conn_handle = tokio::spawn(async move {
-        server_clone
-            .handle_connection(incoming_rx, outgoing_tx)
-            .await;
+        conn_clone.run().await;
     });
 
     // Wait for auth_ok
@@ -285,10 +271,9 @@ async fn handle_connection_routes_response_to_pending_request() {
         body: Some("it works".to_string()),
         body_encoding: None,
     };
-    incoming_tx
-        .send(protocol::serialize_response(&resp))
-        .await
-        .unwrap();
+    connection
+        .push_message(protocol::serialize_response(&resp))
+        .await;
 
     // The request should complete
     let result = request_handle.await.unwrap();
@@ -296,14 +281,12 @@ async fn handle_connection_routes_response_to_pending_request() {
     assert_eq!(result.body.as_deref(), Some("it works"));
 
     // Clean up
-    drop(incoming_tx);
+    connection.close();
     conn_handle.await.unwrap();
 }
 
 #[tokio::test]
 async fn handle_request_returns_502_when_client_channel_closed() {
-    // Simulates the client's outgoing channel being dropped (e.g., client crashed)
-    // while the server tries to send a request through it.
     let server = OutpunchServer::new(test_config());
 
     let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
@@ -311,7 +294,7 @@ async fn handle_request_returns_502_when_client_channel_closed() {
         let mut state = server.state.lock().await;
         state
             .services
-            .insert("my-service".to_string(), Connection { outgoing_tx });
+            .insert("my-service".to_string(), ServiceHandle { outgoing_tx });
     }
 
     // Drop the receiver — simulates the bridge loop dying
@@ -334,8 +317,6 @@ async fn handle_request_returns_502_when_client_channel_closed() {
 
 #[tokio::test]
 async fn handle_request_returns_502_when_oneshot_sender_dropped() {
-    // Simulates the client disconnecting after accepting the request
-    // but before sending a response — the oneshot sender gets dropped.
     let config = ServerConfig {
         secret: "test-secret".to_string(),
         timeout: Duration::from_secs(5),
@@ -348,7 +329,7 @@ async fn handle_request_returns_502_when_oneshot_sender_dropped() {
         let mut state = server.state.lock().await;
         state
             .services
-            .insert("my-service".to_string(), Connection { outgoing_tx });
+            .insert("my-service".to_string(), ServiceHandle { outgoing_tx });
     }
 
     let server_clone = server.clone();
@@ -356,7 +337,6 @@ async fn handle_request_returns_502_when_oneshot_sender_dropped() {
     // Receive the request, then drop the pending sender (simulate disconnect)
     tokio::spawn(async move {
         let _ = outgoing_rx.recv().await;
-        // Drop the oneshot sender by removing the pending entry
         let mut state = server_clone.state.lock().await;
         state.pending.clear();
     });
@@ -377,44 +357,29 @@ async fn handle_request_returns_502_when_oneshot_sender_dropped() {
 }
 
 #[tokio::test]
-async fn handle_connection_ignores_malformed_messages() {
-    // A connected client sends garbage after auth — server should
-    // ignore it and keep listening, not crash.
+async fn connection_ignores_malformed_messages() {
     let server = OutpunchServer::new(test_config());
-
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
 
     // Auth
-    let auth = AuthMessage {
-        msg_type: "auth".to_string(),
-        token: "test-secret".to_string(),
-        service: "my-service".to_string(),
-    };
-    incoming_tx
-        .send(serde_json::to_string(&auth).unwrap())
-        .await
-        .unwrap();
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
 
-    let server_clone = server.clone();
+    let conn_clone = connection.clone();
     let conn_handle = tokio::spawn(async move {
-        server_clone
-            .handle_connection(incoming_rx, outgoing_tx)
-            .await;
+        conn_clone.run().await;
     });
 
     // Wait for auth_ok
     let _ = outgoing_rx.recv().await.unwrap();
 
     // Send garbage
-    incoming_tx
-        .send("not json at all".to_string())
-        .await
-        .unwrap();
-    incoming_tx
-        .send(r#"{"type": "unknown_thing"}"#.to_string())
-        .await
-        .unwrap();
+    connection.push_message("not json at all".to_string()).await;
+    connection
+        .push_message(r#"{"type": "unknown_thing"}"#.to_string())
+        .await;
 
     // Now send a real request and verify the server still works
     let server_clone = server.clone();
@@ -451,35 +416,32 @@ async fn handle_connection_ignores_malformed_messages() {
         body: Some("survived garbage".to_string()),
         body_encoding: None,
     };
-    incoming_tx
-        .send(protocol::serialize_response(&resp))
-        .await
-        .unwrap();
+    connection
+        .push_message(protocol::serialize_response(&resp))
+        .await;
 
     let result = request_handle.await.unwrap();
     assert_eq!(result.status, 200);
     assert_eq!(result.body.as_deref(), Some("survived garbage"));
 
-    drop(incoming_tx);
+    connection.close();
     conn_handle.await.unwrap();
 }
 
 #[tokio::test]
-async fn handle_connection_rejects_non_auth_first_message() {
-    // If the first message isn't an auth message, the server should
-    // send auth_error and close the connection.
+async fn connection_rejects_non_auth_first_message() {
     let server = OutpunchServer::new(test_config());
-
-    let (incoming_tx, incoming_rx) = mpsc::channel(16);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
 
     // Send a request message instead of auth
-    let bad_first_msg = r#"{"type": "response", "request_id": "abc", "status": 200}"#;
-    incoming_tx.send(bad_first_msg.to_string()).await.unwrap();
+    connection
+        .push_message(r#"{"type": "response", "request_id": "abc", "status": 200}"#.to_string())
+        .await;
 
-    drop(incoming_tx);
+    connection.close();
 
-    server.handle_connection(incoming_rx, outgoing_tx).await;
+    connection.run().await;
 
     let raw = outgoing_rx.recv().await.unwrap();
     let msg = protocol::parse_message(&raw).unwrap();

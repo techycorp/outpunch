@@ -98,41 +98,43 @@ async fn ws_handler(State(server): State<Arc<OutpunchServer>>, ws: WebSocketUpgr
     ws.on_upgrade(move |socket| handle_ws(server, socket))
 }
 
-/// Bridge a WebSocket to the core's channel interface.
+/// Bridge a WebSocket to the core's Connection interface.
 async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
     let (mut ws_sink, mut ws_stream) = socket.split();
 
-    // Channels between bridge and core
-    let (incoming_tx, incoming_rx) = mpsc::channel::<String>(64);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<String>(64);
+    let connection = server.create_connection();
 
-    // Bridge: WS stream → incoming_tx
-    let read_handle = tokio::spawn(async move {
-        while let Some(Ok(msg)) = ws_stream.next().await {
-            match msg {
-                WsMessage::Text(text) => {
-                    if incoming_tx.send(text.to_string()).await.is_err() {
-                        break;
-                    }
-                }
-                WsMessage::Close(_) => break,
-                _ => {}
-            }
-        }
+    // Outgoing: core → WS sink (via channel bridged from on_message callback)
+    let (msg_tx, mut msg_rx) = mpsc::channel::<String>(64);
+    connection.on_message(move |msg| {
+        let _ = msg_tx.try_send(msg);
     });
 
-    // Bridge: outgoing_rx → WS sink
     let write_handle = tokio::spawn(async move {
-        while let Some(msg) = outgoing_rx.recv().await {
+        while let Some(msg) = msg_rx.recv().await {
             if ws_sink.send(WsMessage::text(msg)).await.is_err() {
                 break;
             }
         }
     });
 
-    // Core handles the connection.
-    // When this returns, outgoing_tx is dropped, signaling the write task to end.
-    server.handle_connection(incoming_rx, outgoing_tx).await;
+    // Incoming: WS stream → connection.push_message
+    let conn_for_read = connection.clone();
+    let read_handle = tokio::spawn(async move {
+        while let Some(Ok(msg)) = ws_stream.next().await {
+            match msg {
+                WsMessage::Text(text) => {
+                    conn_for_read.push_message(text.to_string()).await;
+                }
+                WsMessage::Close(_) => break,
+                _ => {}
+            }
+        }
+        conn_for_read.close();
+    });
+
+    // Core handles the connection lifecycle.
+    connection.run().await;
 
     // Give the write task time to flush remaining messages before closing
     let _ = tokio::time::timeout(Duration::from_millis(100), write_handle).await;
