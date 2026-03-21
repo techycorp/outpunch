@@ -8,23 +8,9 @@ HTTP request → public server → WebSocket tunnel → private service
 
 The core is a framework-agnostic Rust library — no web framework or WebSocket library dependency. Server adapters and client bindings are thin wrappers, not reimplementations.
 
-**Server adapters** — embed the tunnel in your existing app:
+**Server adapters** — axum, Vite, Express, Fastify
 
-| Framework | Integration | Status |
-|-----------|------------|--------|
-| Rust/axum | `outpunch_axum::router(server)` | Shipped |
-| Vite | `plugins: [outpunch({ secret })]` | Shipped |
-| Express | `app.use(outpunchMiddleware({ secret }))` | Planned |
-| Fastify | | Planned |
-
-**Client bindings** — connect from any language:
-
-| Language | Install | Status |
-|----------|---------|--------|
-| Rust | `cargo add outpunch-client` | Shipped |
-| Python | `pip install outpunch` | Shipped |
-| Node.js | `npm install outpunch` | Shipped |
-| Ruby | `gem install outpunch` | Planned |
+**Client bindings** — Rust, Python, Node.js, Ruby
 
 ## Quick Start
 
