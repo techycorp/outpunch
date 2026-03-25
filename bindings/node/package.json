@@ -32,16 +32,22 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.5.1",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.0",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.2",
     "vitest": "^4.1.0"
   },
   "optionalDependencies": {
-    "outpunch-linux-x64-gnu": "0.1.0",
-    "outpunch-linux-arm64-gnu": "0.1.0",
-    "outpunch-linux-x64-musl": "0.1.0",
-    "outpunch-linux-arm64-musl": "0.1.0",
-    "outpunch-darwin-x64": "0.1.0",
     "outpunch-darwin-arm64": "0.1.0",
+    "outpunch-darwin-x64": "0.1.0",
+    "outpunch-linux-arm64-gnu": "0.1.0",
+    "outpunch-linux-arm64-musl": "0.1.0",
+    "outpunch-linux-x64-gnu": "0.1.0",
+    "outpunch-linux-x64-musl": "0.1.0",
     "outpunch-win32-x64-msvc": "0.1.0"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
   }
 }
