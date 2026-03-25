@@ -1,0 +1,17 @@
+{
+  "name": "outpunch-darwin-x64",
+  "version": "0.1.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "outpunch.darwin-x64.node",
+  "files": [
+    "outpunch.darwin-x64.node"
+  ],
+  "description": "Node.js bindings for the outpunch tunnel server",
+  "license": "MIT",
+  "repository": "https://github.com/joenap/outpunch",
+  "os": [
+    "darwin"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "outpunch-linux-x64-gnu",
+  "version": "0.1.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "outpunch.linux-x64-gnu.node",
+  "files": [
+    "outpunch.linux-x64-gnu.node"
+  ],
+  "description": "Node.js bindings for the outpunch tunnel server",
+  "license": "MIT",
+  "repository": "https://github.com/joenap/outpunch",
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

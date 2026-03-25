@@ -3,10 +3,10 @@ default:
 	@just --list
 
 build:
-	npx napi build --release
+	npx napi build --platform --release
 
 build-debug:
-	npx napi build
+	npx napi build --platform
 
 test: build-debug
 	npx vitest run

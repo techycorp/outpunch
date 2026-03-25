@@ -2,6 +2,10 @@
 name = "outpunch-axum"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Axum server adapter for outpunch reverse WebSocket tunnel"
+repository = "https://github.com/joenap/outpunch"
+homepage = "https://github.com/joenap/outpunch"
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws"] }

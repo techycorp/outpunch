@@ -2,6 +2,10 @@
 name = "outpunch-client"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Client library and binary for outpunch reverse WebSocket tunnel"
+repository = "https://github.com/joenap/outpunch"
+homepage = "https://github.com/joenap/outpunch"
 
 [dependencies]
 base64 = "0.22.1"
