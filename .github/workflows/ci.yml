@@ -49,7 +49,6 @@ jobs:
         working-directory: bindings/python
         run: |
           uv sync --group dev
-          uv run maturin develop
           uv run pytest tests/ -v
 
   node-test:
