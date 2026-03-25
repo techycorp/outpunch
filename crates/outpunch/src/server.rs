@@ -226,10 +226,7 @@ impl Connection {
         });
 
         // Auth
-        let service = match self
-            .handle_auth(&mut incoming_rx, &outgoing_tx)
-            .await
-        {
+        let service = match self.handle_auth(&mut incoming_rx, &outgoing_tx).await {
             Some(service) => service,
             None => {
                 drop(outgoing_tx);
