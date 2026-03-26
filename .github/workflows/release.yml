@@ -219,6 +219,9 @@ jobs:
       - name: Build native module
         working-directory: bindings/node
         run: npx napi build --platform --release --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
       - uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.settings.target }}
