@@ -213,7 +213,7 @@ jobs:
           path: bindings/node/artifacts
       - name: Move artifacts to platform packages
         working-directory: bindings/node
-        run: npx napi artifacts --dir artifacts
+        run: npx napi artifacts --build-output-dir artifacts
       - name: Publish platform packages
         working-directory: bindings/node
         run: |
