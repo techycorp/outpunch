@@ -204,14 +204,20 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - name: Build in Docker
-        uses: addnab/docker-run-action@v3
+      - uses: actions/setup-node@v4
         with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-          options: "-v ${{ github.workspace }}:/build -w /build/bindings/node"
-          run: |
-            npm ci
-            npx napi build --platform --release --target ${{ matrix.settings.target }}
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+      - name: Install musl tools
+        run: sudo apt-get install -y musl-tools
+      - name: Install dependencies
+        working-directory: bindings/node
+        run: npm ci
+      - name: Build native module
+        working-directory: bindings/node
+        run: npx napi build --platform --release --target ${{ matrix.settings.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.settings.target }}
