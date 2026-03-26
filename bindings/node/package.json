@@ -16,8 +16,6 @@
     "targets": [
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu",
-      "x86_64-unknown-linux-musl",
-      "aarch64-unknown-linux-musl",
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
       "x86_64-pc-windows-msvc"
@@ -42,9 +40,7 @@
     "outpunch-darwin-arm64": "0.1.0",
     "outpunch-darwin-x64": "0.1.0",
     "outpunch-linux-arm64-gnu": "0.1.0",
-    "outpunch-linux-arm64-musl": "0.1.0",
     "outpunch-linux-x64-gnu": "0.1.0",
-    "outpunch-linux-x64-musl": "0.1.0",
     "outpunch-win32-x64-msvc": "0.1.0"
   },
   "dependencies": {
