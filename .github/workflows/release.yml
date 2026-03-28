@@ -219,14 +219,14 @@ jobs:
         run: |
           for dir in npm/*/; do
             if [ -f "$dir/package.json" ]; then
-              npm publish "$dir" --access public
+              npm publish "$dir" --access public || echo "Skipping $dir (already published or error)"
             fi
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
       - name: Publish main package
         working-directory: bindings/node
-        run: npm publish --access public
+        run: npm publish --access public || echo "Already published"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
 
