@@ -182,7 +182,7 @@ jobs:
           targets: ${{ matrix.settings.target }}
       - name: Install dependencies
         working-directory: bindings/node
-        run: npm ci
+        run: npm install --ignore-scripts
       - name: Build native module
         working-directory: bindings/node
         run: npx napi build --platform --release --target ${{ matrix.settings.target }}
@@ -205,7 +205,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Install dependencies
         working-directory: bindings/node
-        run: npm ci
+        run: npm install --ignore-scripts
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
