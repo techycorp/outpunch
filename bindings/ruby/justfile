@@ -1,0 +1,14 @@
+default:
+    @just --list
+
+build:
+    bundle exec rake compile
+
+dev:
+    bundle install && bundle exec rake compile
+
+test:
+    bundle exec rake compile && bundle exec rspec
+
+test-verbose:
+    bundle exec rake compile && bundle exec rspec --format documentation

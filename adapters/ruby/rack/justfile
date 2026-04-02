@@ -1,0 +1,11 @@
+default:
+    @just --list
+
+dev:
+    bundle install
+
+test:
+    bundle exec rspec
+
+test-verbose:
+    bundle exec rspec --format documentation

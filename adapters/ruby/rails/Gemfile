@@ -1,0 +1,11 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gemspec
+
+gem "rspec", "~> 3.12"
+gem "rspec-rails", "~> 6.0"
+gem "rails", "~> 7.0.0"
+gem "outpunch-rack", path: "../rack"
+gem "tzinfo-data", platforms: [:mingw, :mswin, :x64_mingw]
