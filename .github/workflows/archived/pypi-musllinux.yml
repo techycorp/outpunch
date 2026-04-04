@@ -1,0 +1,33 @@
+# Archived: musllinux wheels require OpenSSL compiled against musl libc.
+# native-tls makes this non-trivial. Re-enable if switching to rustls or vendored OpenSSL.
+#
+# To restore, add this job back to release.yml and add pypi-musllinux to publish-pypi needs.
+
+  pypi-musllinux:
+    runs-on: ${{ matrix.platform.runner }}
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --interpreter 3.10 3.11 3.12 3.13 3.14
+          manylinux: musllinux_1_2
+          before-script-linux: apt-get update && apt-get install -y libssl-dev pkg-config
+          working-directory: bindings/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: bindings/python/dist
