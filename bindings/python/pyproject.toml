@@ -1,6 +1,6 @@
 [project]
 name = "outpunch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python bindings for the outpunch tunnel client"
 readme = "README.md"
 requires-python = ">=3.10"
