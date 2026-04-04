@@ -107,7 +107,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --interpreter 3.10 3.11 3.12 3.13 3.14
           manylinux: musllinux_1_2
-          before-script-linux: apk add --no-cache openssl-dev pkgconfig
+          before-script-linux: apt-get update && apt-get install -y libssl-dev pkg-config
           working-directory: bindings/python
       - uses: actions/upload-artifact@v4
         with:
