@@ -73,9 +73,11 @@ impl ClientConfig {
 /// Run the tunnel client forever, reconnecting on failure.
 /// This is a blocking call that releases the GIL.
 #[pyfunction]
-fn run(config: &ClientConfig) -> PyResult<()> {
+fn run(py: Python<'_>, config: &ClientConfig) -> PyResult<()> {
     let rust_config = config.to_rust();
-    pyo3_async_runtimes::tokio::get_runtime().block_on(outpunch_client::run(&rust_config));
+    py.detach(|| {
+        pyo3_async_runtimes::tokio::get_runtime().block_on(outpunch_client::run(&rust_config));
+    });
     Ok(())
 }
 

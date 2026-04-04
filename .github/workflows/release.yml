@@ -10,10 +10,39 @@ permissions:
   contents: write
 
 jobs:
+  # Detect which ecosystems have changed since the previous tag
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust:   ${{ steps.check.outputs.rust }}
+      python: ${{ steps.check.outputs.python }}
+      node:   ${{ steps.check.outputs.node }}
+      ruby:   ${{ steps.check.outputs.ruby }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check changed paths since previous tag
+        id: check
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            echo "rust=true"   >> $GITHUB_OUTPUT
+            echo "python=true" >> $GITHUB_OUTPUT
+            echo "node=true"   >> $GITHUB_OUTPUT
+            echo "ruby=true"   >> $GITHUB_OUTPUT
+          else
+            git diff --quiet "$PREV_TAG" HEAD -- crates/                       && echo "rust=false"   >> $GITHUB_OUTPUT || echo "rust=true"   >> $GITHUB_OUTPUT
+            git diff --quiet "$PREV_TAG" HEAD -- bindings/python/ crates/      && echo "python=false" >> $GITHUB_OUTPUT || echo "python=true" >> $GITHUB_OUTPUT
+            git diff --quiet "$PREV_TAG" HEAD -- bindings/node/ crates/        && echo "node=false"   >> $GITHUB_OUTPUT || echo "node=true"   >> $GITHUB_OUTPUT
+            git diff --quiet "$PREV_TAG" HEAD -- adapters/ruby/                && echo "ruby=false"   >> $GITHUB_OUTPUT || echo "ruby=true"   >> $GITHUB_OUTPUT
+          fi
+
   # Phase 1: Publish Rust crates to crates.io
   publish-crates:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [detect-changes]
+    if: startsWith(github.ref, 'refs/tags/') && needs.detect-changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +58,8 @@ jobs:
   # Phase 2a: Build PyPI wheels
   pypi-linux:
     runs-on: ${{ matrix.platform.runner }}
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
     strategy:
       matrix:
         platform:
@@ -56,7 +86,8 @@ jobs:
 
   pypi-musllinux:
     runs-on: ${{ matrix.platform.runner }}
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
     strategy:
       matrix:
         platform:
@@ -83,7 +114,8 @@ jobs:
 
   pypi-macos:
     runs-on: macos-latest
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -105,7 +137,8 @@ jobs:
 
   pypi-windows:
     runs-on: windows-latest
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -124,7 +157,8 @@ jobs:
 
   pypi-sdist:
     runs-on: ubuntu-latest
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.python == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Build sdist
@@ -141,8 +175,8 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [pypi-linux, pypi-musllinux, pypi-macos, pypi-windows, pypi-sdist]
+    if: startsWith(github.ref, 'refs/tags/') && needs.detect-changes.outputs.python == 'true'
+    needs: [detect-changes, pypi-linux, pypi-musllinux, pypi-macos, pypi-windows, pypi-sdist]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -157,7 +191,8 @@ jobs:
   # Phase 2b: Build npm native binaries
   npm-build:
     runs-on: ${{ matrix.settings.runner }}
-    needs: [publish-crates]
+    needs: [detect-changes, publish-crates]
+    if: needs.detect-changes.outputs.node == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -195,8 +230,8 @@ jobs:
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [npm-build]
+    if: startsWith(github.ref, 'refs/tags/') && needs.detect-changes.outputs.node == 'true'
+    needs: [detect-changes, npm-build]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -230,12 +265,38 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
 
+  # Phase 2c: Publish Ruby gems
+  publish-rubygems:
+    name: Publish to RubyGems
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') && needs.detect-changes.outputs.ruby == 'true'
+    needs: [detect-changes]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: Build and publish outpunch-rack
+        working-directory: adapters/ruby/rack
+        run: |
+          gem build outpunch-rack.gemspec
+          gem push outpunch-rack-*.gem
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+      - name: Build and publish outpunch
+        working-directory: adapters/ruby/rails
+        run: |
+          gem build outpunch.gemspec
+          gem push outpunch-*.gem
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+
   # Phase 3: GitHub Release
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [publish-crates, publish-pypi, publish-npm]
+    if: startsWith(github.ref, 'refs/tags/') && always()
+    needs: [detect-changes, publish-crates, publish-pypi, publish-npm, publish-rubygems]
     steps:
       - uses: actions/download-artifact@v4
         with:
