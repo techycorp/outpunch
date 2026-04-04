@@ -78,6 +78,12 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --interpreter 3.10 3.11 3.12 3.13 3.14
           manylinux: auto
+          before-script-linux: |
+            if command -v yum &>/dev/null; then
+              yum install -y openssl-devel
+            else
+              apt-get update && apt-get install -y libssl-dev pkg-config
+            fi
           working-directory: bindings/python
       - uses: actions/upload-artifact@v4
         with:
