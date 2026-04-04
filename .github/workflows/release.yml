@@ -107,6 +107,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --interpreter 3.10 3.11 3.12 3.13 3.14
           manylinux: musllinux_1_2
+          before-script-linux: apk add --no-cache openssl-dev pkgconfig
           working-directory: bindings/python
       - uses: actions/upload-artifact@v4
         with:
@@ -281,14 +282,14 @@ jobs:
         working-directory: adapters/ruby/rack
         run: |
           gem build outpunch-rack.gemspec
-          gem push outpunch-rack-*.gem
+          gem push outpunch-rack-*.gem || echo "Already published"
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
       - name: Build and publish outpunch
         working-directory: adapters/ruby/rails
         run: |
           gem build outpunch.gemspec
-          gem push outpunch-*.gem
+          gem push outpunch-*.gem || echo "Already published"
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
 
