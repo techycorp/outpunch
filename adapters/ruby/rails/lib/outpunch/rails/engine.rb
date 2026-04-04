@@ -4,7 +4,7 @@ module Outpunch
   module Rails
     class Engine < ::Rails::Engine
       initializer "outpunch_rails.insert_middleware" do |app|
-        app.middleware.insert_before 0, Outpunch::Rack::Middleware, server: OutpunchRails.server
+        app.middleware.insert_before 0, Outpunch::Rack::Middleware
       end
 
       initializer "outpunch_rails.routes" do

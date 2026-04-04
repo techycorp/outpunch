@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "3.8.3", features = ["async", "napi9"] }
 napi-derive = "3.5.2"
-outpunch = { version = "0.1.0", path = "../../crates/outpunch" }
+outpunch = { version = "0.1.1", path = "../../crates/outpunch" }
 serde_json = "1.0.149"
 tokio = { version = "1.50.0", features = ["full"] }
 

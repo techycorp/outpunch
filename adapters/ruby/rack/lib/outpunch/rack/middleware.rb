@@ -5,15 +5,14 @@ module Outpunch
     class Middleware
       WS_PATH = "/ws"
 
-      def initialize(app, server:)
-        @app    = app
-        @server = server
+      def initialize(app)
+        @app = app
       end
 
       def call(env)
         if env["PATH_INFO"] == WS_PATH && websocket_upgrade?(env)
           env["rack.hijack"].call
-          conn = @server.create_connection
+          conn = Outpunch::Rack.server.create_connection
           Thread.new { conn.run(env) }
           [-1, {}, []]
         else

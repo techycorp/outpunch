@@ -54,26 +54,37 @@ pub async fn run_connection(
     authenticate(&mut ws_sink, &mut ws_stream, config).await?;
 
     let http_client = reqwest::Client::new();
+    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    ping_interval.tick().await; // discard immediate first tick
 
-    while let Some(msg) = ws_stream.next().await {
-        let text = match msg? {
-            WsMessage::Text(t) => t,
-            WsMessage::Close(_) => break,
-            _ => continue,
-        };
-
-        match protocol::parse_message(&text) {
-            Ok(Message::Request(req)) => {
-                eprintln!("[{:.8}] {} /{}", req.request_id, req.method, req.path);
-                let response = forward_request(&http_client, config, &req).await;
-                eprintln!("[{:.8}] -> {}", req.request_id, response.status);
-
-                ws_sink
-                    .send(WsMessage::text(protocol::serialize_response(&response)))
-                    .await?;
+    loop {
+        tokio::select! {
+            msg = ws_stream.next() => {
+                let msg = match msg {
+                    Some(Ok(m)) => m,
+                    _ => break,
+                };
+                let text = match msg {
+                    WsMessage::Text(t) => t,
+                    WsMessage::Close(_) => break,
+                    _ => continue,
+                };
+                match protocol::parse_message(&text) {
+                    Ok(Message::Request(req)) => {
+                        eprintln!("[{:.8}] {} /{}", req.request_id, req.method, req.path);
+                        let response = forward_request(&http_client, config, &req).await;
+                        eprintln!("[{:.8}] -> {}", req.request_id, response.status);
+                        ws_sink
+                            .send(WsMessage::text(protocol::serialize_response(&response)))
+                            .await?;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => continue,
+                }
             }
-            Ok(_) => continue,
-            Err(_) => continue,
+            _ = ping_interval.tick() => {
+                ws_sink.send(WsMessage::Ping(vec![].into())).await?;
+            }
         }
     }
 

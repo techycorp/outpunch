@@ -1,6 +1,6 @@
 [package]
 name = "outpunch-axum"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "Axum server adapter for outpunch reverse WebSocket tunnel"
@@ -11,7 +11,7 @@ homepage = "https://github.com/joenap/outpunch"
 axum = { version = "0.8.8", features = ["ws"] }
 base64 = "0.22.1"
 futures-util = "0.3.32"
-outpunch = { version = "0.1.0", path = "../outpunch" }
+outpunch = { version = "0.1.1", path = "../outpunch" }
 serde_json = "1.0.149"
 tokio = { version = "1.50.0", features = ["sync", "time"] }
 
