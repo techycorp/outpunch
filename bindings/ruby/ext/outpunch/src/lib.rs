@@ -103,28 +103,26 @@ impl ClientConfig {
     }
 }
 
-fn run(ruby: &Ruby, config: &ClientConfig) -> Result<(), Error> {
+fn run(_ruby: &Ruby, config: &ClientConfig) -> Result<(), Error> {
     let rust_config = config.to_rust();
-    ruby.thread_call_without_gvl(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(outpunch_client::run(&rust_config));
-    });
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(outpunch_client::run(&rust_config));
     Ok(())
 }
 
 fn run_connection(ruby: &Ruby, config: &ClientConfig) -> Result<(), Error> {
     let rust_config = config.to_rust();
-    let result = ruby.thread_call_without_gvl(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(outpunch_client::run_connection(&rust_config))
-    });
-    result.map_err(|e| Error::new(ruby.exception_runtime_error(), e.to_string()))
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(outpunch_client::run_connection(&rust_config));
+    result.map_err(|e: Box<dyn std::error::Error + Send + Sync>| {
+        Error::new(ruby.exception_runtime_error(), e.to_string())
+    })
 }
 
 #[magnus::init]
@@ -154,8 +152,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     config_class.define_method("inspect", method!(ClientConfig::inspect, 0))?;
     config_class.define_method("to_s", method!(ClientConfig::inspect, 0))?;
 
-    module.define_module_function("run", function!(run, 2))?;
-    module.define_module_function("run_connection", function!(run_connection, 2))?;
+    module.define_module_function("run", function!(run, 1))?;
+    module.define_module_function("run_connection", function!(run_connection, 1))?;
 
     Ok(())
 }

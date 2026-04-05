@@ -1,0 +1,4 @@
+target/
+tmp/
+lib/outpunch/*.bundle
+*.gem

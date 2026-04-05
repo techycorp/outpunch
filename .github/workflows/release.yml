@@ -35,7 +35,7 @@ jobs:
             git diff --quiet "$PREV_TAG" HEAD -- crates/                       && echo "rust=false"   >> $GITHUB_OUTPUT || echo "rust=true"   >> $GITHUB_OUTPUT
             git diff --quiet "$PREV_TAG" HEAD -- bindings/python/ crates/      && echo "python=false" >> $GITHUB_OUTPUT || echo "python=true" >> $GITHUB_OUTPUT
             git diff --quiet "$PREV_TAG" HEAD -- bindings/node/ crates/        && echo "node=false"   >> $GITHUB_OUTPUT || echo "node=true"   >> $GITHUB_OUTPUT
-            git diff --quiet "$PREV_TAG" HEAD -- adapters/ruby/                && echo "ruby=false"   >> $GITHUB_OUTPUT || echo "ruby=true"   >> $GITHUB_OUTPUT
+            git diff --quiet "$PREV_TAG" HEAD -- adapters/ruby/ bindings/ruby/   && echo "ruby=false"   >> $GITHUB_OUTPUT || echo "ruby=true"   >> $GITHUB_OUTPUT
           fi
 
   # Phase 1: Publish Rust crates to crates.io
@@ -257,9 +257,19 @@ jobs:
           gem push outpunch-rack-*.gem || echo "Already published"
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-      - name: Build and publish outpunch
+      - name: Build and publish outpunch-rails
         working-directory: adapters/ruby/rails
         run: |
+          gem build outpunch-rails.gemspec
+          gem push outpunch-rails-*.gem || echo "Already published"
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+      - name: Install rb_sys for native extension
+        run: gem install rb_sys
+      - name: Build and publish outpunch (Ruby client)
+        working-directory: bindings/ruby
+        run: |
+          bundle install
           gem build outpunch.gemspec
           gem push outpunch-*.gem || echo "Already published"
         env:
