@@ -137,7 +137,7 @@ Client bindings use per-language FFI tools rather than a single generator — ea
 |----------|----------|----------------|--------|
 | Python | PyO3 + pyo3-async-runtimes | Rust async → Python awaitable | Implemented |
 | Node.js | Napi-RS | Rust async → JS Promise | Planned |
-| Ruby | Magnus + rb-sys | Manual reactor pattern (GVL release + channel) | Planned |
+| Ruby | Magnus + rb-sys | Manual reactor pattern (GVL release + channel) | Shipped |
 
 Server-side adapters for other languages (Rails, Django, Express) are written natively in each language, not via FFI. See [project-structure.md](project-structure.md) for details.
 

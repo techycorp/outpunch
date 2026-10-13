@@ -14,10 +14,10 @@ The server accepts multiple client connections for the same service name and rou
 
 **Alternative**: keep outpunch as one client per service. If you need multiple instances, the standalone client sits in front of a real load balancer (Traefik, nginx, HAProxy) on the private side. Outpunch is the tunnel, the load balancer is the load balancer.
 
+**Current behavior**: one client per service, newest wins. When a second client authenticates for a service, it replaces the first, and the server closes the replaced connection and fails its in-flight requests with 502. This favors fast reconnects: a client whose old socket died without the server noticing can take over immediately. Two live clients misconfigured with the same service will repeatedly displace each other, which shows up as reconnect churn in their logs.
+
 **Open questions**:
-- If multiple embedded clients connect for the same service, does the server reject the second one, or silently accept it?
 - If it accepts multiple, is simple round-robin enough, or does that create false expectations of load balancer behavior?
-- Should the server even be aware of this, or should it be a strict 1:1 mapping enforced at connection time?
 
 ## Multiple Services Per Client
 
@@ -59,3 +59,19 @@ The client detects changes to its service configuration file and subscribes/unsu
 ## Standalone Client Distribution
 
 Docker image, Helm chart, and pre-built binaries for the standalone client. Makes it easy to deploy the client as a sidecar or standalone container.
+
+## Bounded Outgoing Queue
+
+The axum, Node and Ruby adapters queue messages for a client without a limit. A client that reads slower than requests arrive, for a sustained period, makes server memory grow by roughly one request body per queued message. Replace the queue with a bounded one that fails new requests fast (503) when full.
+
+## Client Concurrency Limit
+
+The client forwards every tunneled request to the local service at once, with no cap. Add an optional `max_concurrent` setting so a burst can't overload a small local service.
+
+## Warn on Connection Replacement
+
+When a newer client replaces an existing one for the same service, log a warning on the server. Two live clients misconfigured with the same service name otherwise only show up as reconnect churn in the client logs.
+
+## Configurable Ping Interval
+
+The client's keepalive ping interval is hard-coded at 30s. Make it a `ClientConfig` setting (exposed through the Python, Node and Ruby bindings), then add a test that pings keep flowing while a slow request is in flight.

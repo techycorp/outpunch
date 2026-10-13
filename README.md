@@ -8,7 +8,7 @@ HTTP request → public server → WebSocket tunnel → private service
 
 The core is a framework-agnostic Rust library — no web framework or WebSocket library dependency. Server adapters and client bindings are thin wrappers, not reimplementations.
 
-**Server adapters** — axum, Vite, Express, Fastify
+**Server adapters** — axum, Vite, Express, Fastify, Rack, Rails
 
 **Client bindings** — Rust, Python, Node.js, Ruby
 

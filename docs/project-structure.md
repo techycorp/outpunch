@@ -37,7 +37,7 @@ bindings/
     Cargo.toml                 # Napi-RS crate
     src/lib.rs
 
-  ruby/                        # Ruby binding (planned)
+  ruby/                        # Ruby binding (client + core server)
     outpunch.gemspec
     Cargo.toml                 # Magnus crate
     ext/outpunch/src/lib.rs
