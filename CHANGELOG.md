@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
+
+| Package | Registry | Version |
+|---|---|---|
+| `outpunch`, `outpunch-axum`, `outpunch-client` | crates.io | 0.2.0 |
+| `outpunch` | npm | 0.2.0 |
+| `outpunch` | PyPI | 0.2.2 |
+| `outpunch` (native gem), `outpunch-rack`, `outpunch-rails` | RubyGems | 0.2.0 |
 
 ### Breaking changes
 
@@ -10,7 +17,8 @@
 - **Ruby: `outpunch-rack` and `outpunch-rails` now run on the Rust core** through the
   native `outpunch` gem (0.2.0), which is a new runtime dependency. The public Ruby API is
   unchanged. Query and header values are converted to strings, and `Outpunch::Rack::Server`
-  raises `ArgumentError` when the secret is blank.
+  raises `ArgumentError` when the secret is blank. Installing the gem compiles a Rust
+  extension, so a Rust toolchain (`cargo`) must be available at install time.
 - **Ruby: `outpunch-rails` no longer ships `lib/outpunch.rb`.** Apps that call
   `require "outpunch"` to load the Rails adapter should require `outpunch/rails` instead.
   Bundler's auto-require is unaffected.
@@ -31,6 +39,8 @@
 - Connections that never sent an auth message were held open forever. They are now closed after
   `auth_timeout` (default 10s).
 - Any authenticated client could answer a request sent to a different service.
+- The native `outpunch` gem can now be installed from RubyGems. Earlier versions referenced
+  Rust crates outside the gem and failed to compile on install.
 - The Node adapter now closes the WebSocket when the server ends a connection (failed auth,
   auth timeout, or replaced by a newer client).
 

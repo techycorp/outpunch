@@ -250,6 +250,24 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+      - name: Install rb_sys for native extension
+        run: gem install rb_sys
+      - name: Build and publish outpunch (native gem)
+        working-directory: bindings/ruby
+        run: |
+          # The gem compiles on install, outside this repo: vendor the Rust crates it
+          # depends on and point the extension's path dependencies at the copies.
+          mkdir -p ext/outpunch/vendor
+          for crate in outpunch outpunch-client; do
+            mkdir -p "ext/outpunch/vendor/$crate"
+            cp -R "../../crates/$crate/Cargo.toml" "../../crates/$crate/src" "ext/outpunch/vendor/$crate/"
+          done
+          sed -i 's#"../../../../crates/#"vendor/#' ext/outpunch/Cargo.toml
+          bundle install
+          gem build outpunch.gemspec
+          gem push outpunch-*.gem || echo "Already published"
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
       - name: Build and publish outpunch-rack
         working-directory: adapters/ruby/rack
         run: |
@@ -262,16 +280,6 @@ jobs:
         run: |
           gem build outpunch-rails.gemspec
           gem push outpunch-rails-*.gem || echo "Already published"
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-      - name: Install rb_sys for native extension
-        run: gem install rb_sys
-      - name: Build and publish outpunch (Ruby client)
-        working-directory: bindings/ruby
-        run: |
-          bundle install
-          gem build outpunch.gemspec
-          gem push outpunch-*.gem || echo "Already published"
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
 
