@@ -63,6 +63,17 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby-version }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # RubyInstaller on Windows is MinGW, so the extension builds for the GNU target.
+          targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+      # The Rack and Rails adapters load the native gem, so compile it first.
+      - name: Build and test outpunch (native gem)
+        working-directory: bindings/ruby
+        run: |
+          bundle install
+          bundle exec rake compile
+          bundle exec rspec
       - name: Test outpunch-rack
         working-directory: adapters/ruby/rack
         run: |
