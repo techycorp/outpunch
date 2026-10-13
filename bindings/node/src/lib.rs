@@ -27,6 +27,7 @@ impl OutpunchServer {
             secret: config.secret,
             timeout: Duration::from_millis(config.timeout_ms.unwrap_or(25000) as u64),
             max_body_size: config.max_body_size.unwrap_or(10 * 1024 * 1024) as usize,
+            ..Default::default()
         });
         Self { inner }
     }

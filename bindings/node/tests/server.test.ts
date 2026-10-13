@@ -550,3 +550,65 @@ test('custom ws path', async () => {
   expect(JSON.parse(resp).type).toBe('auth_ok');
   ws2.close();
 });
+
+// --- connection lifecycle and backpressure ---
+
+test('stale disconnect does not remove newer connection', async () => {
+  const port = await startServer({ secret: 's', timeoutMs: 5000 });
+  const oldWs = await connectAndAuth(port, 's', 'svc');
+  const newWs = await connectAndAuth(port, 's', 'svc');
+  echoClient(newWs);
+
+  await new Promise<void>((resolve) => {
+    oldWs.once('close', () => resolve());
+    oldWs.close();
+  });
+  await new Promise((r) => setTimeout(r, 100));
+
+  const res = await fetch(`http://127.0.0.1:${port}/tunnel/svc/hello`);
+  expect(res.status).toBe(200);
+  newWs.close();
+});
+
+test('slow-reading client does not lose requests', async () => {
+  const requests = 200;
+  const port = await startServer({ secret: 's', timeoutMs: 10000 });
+  const ws = await connectAndAuth(port, 's', 'svc');
+
+  let received = 0;
+  ws.on('message', (data) => {
+    if (JSON.parse(data.toString()).type === 'request') received++;
+  });
+  ws.pause();
+
+  const body = 'x'.repeat(256 * 1024);
+  const controller = new AbortController();
+  for (let i = 0; i < requests; i++) {
+    fetch(`http://127.0.0.1:${port}/tunnel/svc/upload`, {
+      method: 'POST',
+      body,
+      signal: controller.signal,
+    }).catch(() => {});
+  }
+
+  await new Promise((r) => setTimeout(r, 1000));
+  ws.resume();
+  await new Promise((r) => setTimeout(r, 3000));
+
+  expect(received).toBe(requests);
+  controller.abort();
+  ws.close();
+}, 10000);
+
+test('server closes the socket of a replaced connection', async () => {
+  const port = await startServer({ secret: 's', timeoutMs: 5000 });
+  const oldWs = await connectAndAuth(port, 's', 'svc');
+  const closed = new Promise<void>((resolve) => oldWs.once('close', () => resolve()));
+
+  const newWs = await connectAndAuth(port, 's', 'svc');
+
+  await expect(
+    Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error('old socket still open')), 1000))]),
+  ).resolves.toBeUndefined();
+  newWs.close();
+});

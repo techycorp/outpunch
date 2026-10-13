@@ -440,6 +440,7 @@ async fn returns_400_when_body_exceeds_max_size() {
         secret: "test-secret".to_string(),
         timeout: Duration::from_secs(5),
         max_body_size: 100, // 100 bytes
+        ..ServerConfig::default()
     });
 
     let base_url = start_server(server).await;

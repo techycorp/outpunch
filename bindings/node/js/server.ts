@@ -98,7 +98,10 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
         connection.close();
       });
 
-      connection.run().catch(() => {});
+      connection
+        .run()
+        .catch(() => {})
+        .finally(() => ws.close());
     });
 
     return true;

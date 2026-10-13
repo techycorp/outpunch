@@ -523,3 +523,45 @@ fn make_request(path: &str, query: HashMap<String, String>) -> TunnelRequest {
         body: None,
     }
 }
+
+#[tokio::test]
+async fn run_connection_does_not_serialize_requests_behind_slow_one() {
+    let ws_url = start_outpunch_server("test-secret").await;
+    let local_app = Router::new()
+        .route(
+            "/slow",
+            get(|| async {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                "slow"
+            }),
+        )
+        .route("/fast", get(|| async { "fast" }));
+    let local_url = start_local_server(local_app).await;
+
+    let config = ClientConfig {
+        server_url: ws_url.clone(),
+        secret: "test-secret".to_string(),
+        service: "my-service".to_string(),
+        forward_to: local_url,
+        ..ClientConfig::default()
+    };
+    let conn_handle = tokio::spawn(async move { run_connection(&config).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http_url = ws_url.replace("ws://", "http://").replace("/ws", "");
+    let slow_url = format!("{http_url}/tunnel/my-service/slow");
+    let slow = tokio::spawn(async move { reqwest::get(slow_url).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let fast = tokio::time::timeout(
+        Duration::from_secs(1),
+        reqwest::get(format!("{http_url}/tunnel/my-service/fast")),
+    )
+    .await
+    .expect("fast request should not wait behind the slow one")
+    .unwrap();
+    assert_eq!(fast.text().await.unwrap(), "fast");
+
+    slow.abort();
+    conn_handle.abort();
+}

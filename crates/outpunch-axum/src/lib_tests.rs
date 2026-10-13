@@ -242,3 +242,67 @@ async fn response_with_invalid_header_name_returns_500() {
     // Invalid header name causes builder to fail, falls back to 500
     assert_eq!(axum_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
+
+#[tokio::test]
+async fn slow_reading_client_does_not_lose_requests() {
+    use outpunch::server::ServerConfig;
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+    const REQUESTS: usize = 200;
+
+    let server = OutpunchServer::new(ServerConfig {
+        secret: "test-secret".to_string(),
+        timeout: Duration::from_secs(10),
+        ..ServerConfig::default()
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router(server)).await.unwrap();
+    });
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+        .await
+        .unwrap();
+    ws.send(ClientMessage::text(
+        r#"{"type":"auth","token":"test-secret","service":"my-service"}"#,
+    ))
+    .await
+    .unwrap();
+    let _auth_ok = ws.next().await.unwrap().unwrap();
+
+    let http = reqwest::Client::new();
+    let body = "x".repeat(256 * 1024);
+    let mut requests = Vec::new();
+    for _ in 0..REQUESTS {
+        let http = http.clone();
+        let body = body.clone();
+        requests.push(tokio::spawn(async move {
+            http.post(format!("http://{addr}/tunnel/my-service/upload"))
+                .body(body)
+                .send()
+                .await
+        }));
+    }
+
+    // Client stops reading long enough for the socket buffers to fill.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let mut received = 0;
+    while let Ok(Some(Ok(ClientMessage::Text(text)))) =
+        tokio::time::timeout(Duration::from_secs(2), ws.next()).await
+    {
+        if text.contains(r#""type":"request""#) {
+            received += 1;
+        }
+    }
+
+    assert_eq!(
+        received, REQUESTS,
+        "requests were dropped before reaching the client"
+    );
+
+    for r in requests {
+        r.abort();
+    }
+}

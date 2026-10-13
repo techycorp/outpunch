@@ -105,9 +105,9 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
     let connection = server.create_connection();
 
     // Outgoing: core → WS sink (via channel bridged from on_message callback)
-    let (msg_tx, mut msg_rx) = mpsc::channel::<String>(64);
+    let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<String>();
     connection.on_message(move |msg| {
-        let _ = msg_tx.try_send(msg);
+        let _ = msg_tx.send(msg);
     });
 
     let write_handle = tokio::spawn(async move {

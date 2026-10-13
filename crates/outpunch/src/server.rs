@@ -1,16 +1,50 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use tokio::sync::{Mutex, mpsc, oneshot};
 
-use crate::protocol::{self, IncomingRequest, Message, TunnelResponse};
+use crate::protocol::{self, IncomingRequest, Message, TunnelRequest, TunnelResponse};
+
+/// Why a tunnel request failed before the client produced a response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelError {
+    NotConnected,
+    ConnectionLost,
+    Disconnected,
+    Timeout,
+}
+
+impl TunnelError {
+    pub fn status(&self) -> u16 {
+        match self {
+            TunnelError::Timeout => 504,
+            _ => 502,
+        }
+    }
+}
+
+impl std::fmt::Display for TunnelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TunnelError::NotConnected => "no client connected for service",
+            TunnelError::ConnectionLost => "client connection lost",
+            TunnelError::Disconnected => "client disconnected",
+            TunnelError::Timeout => "tunnel timeout",
+        })
+    }
+}
+
+impl std::error::Error for TunnelError {}
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub secret: String,
     pub timeout: Duration,
     pub max_body_size: usize,
+    /// How long a new connection may take to send its auth message.
+    pub auth_timeout: Duration,
 }
 
 impl Default for ServerConfig {
@@ -19,13 +53,22 @@ impl Default for ServerConfig {
             secret: String::new(),
             timeout: Duration::from_secs(25),
             max_body_size: 10 * 1024 * 1024, // 10MB
+            auth_timeout: Duration::from_secs(10),
         }
     }
 }
 
 /// Internal handle stored in the services map for sending messages to a client.
 struct ServiceHandle {
+    conn_id: u64,
     outgoing_tx: mpsc::Sender<String>,
+    connection: Weak<ConnectionInner>,
+}
+
+/// A request waiting for a response from the connection it was sent to.
+struct PendingRequest {
+    conn_id: u64,
+    tx: oneshot::Sender<TunnelResponse>,
 }
 
 /// Shared state for the outpunch server.
@@ -33,14 +76,15 @@ struct ServerState {
     config: ServerConfig,
     /// service name → active connection handle
     services: HashMap<String, ServiceHandle>,
-    /// request_id → oneshot sender to deliver the response
-    pending: HashMap<String, oneshot::Sender<TunnelResponse>>,
+    /// request_id → the request waiting on a response
+    pending: HashMap<String, PendingRequest>,
 }
 
 #[derive(Clone)]
 pub struct OutpunchServer {
     state: Arc<Mutex<ServerState>>,
     max_body_size: usize,
+    next_conn_id: Arc<AtomicU64>,
 }
 
 impl OutpunchServer {
@@ -53,6 +97,7 @@ impl OutpunchServer {
                 pending: HashMap::new(),
             })),
             max_body_size,
+            next_conn_id: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -67,6 +112,7 @@ impl OutpunchServer {
 
         Connection {
             inner: Arc::new(ConnectionInner {
+                id: self.next_conn_id.fetch_add(1, Ordering::Relaxed),
                 server: self.clone(),
                 incoming_tx: std::sync::Mutex::new(Some(incoming_tx)),
                 callback: std::sync::Mutex::new(None),
@@ -79,48 +125,65 @@ impl OutpunchServer {
         }
     }
 
-    /// Handle an incoming HTTP tunnel request. Returns a TunnelResponse.
-    /// Called by the adapter when a request hits /tunnel/*path.
+    /// Handle an incoming HTTP tunnel request. Tunnel failures become 502/504 error responses.
     pub async fn handle_request(&self, incoming: IncomingRequest) -> TunnelResponse {
         let tunnel_req = protocol::build_tunnel_request(&incoming);
+        let request_id = tunnel_req.request_id.clone();
+        match self.dispatch(tunnel_req).await {
+            Ok(response) => response,
+            Err(err) => protocol::error_response(&request_id, err.status(), &err.to_string()),
+        }
+    }
+
+    /// Handle an incoming HTTP tunnel request, returning tunnel failures as a `TunnelError`.
+    pub async fn try_handle_request(
+        &self,
+        incoming: IncomingRequest,
+    ) -> Result<TunnelResponse, TunnelError> {
+        self.dispatch(protocol::build_tunnel_request(&incoming))
+            .await
+    }
+
+    async fn dispatch(&self, tunnel_req: TunnelRequest) -> Result<TunnelResponse, TunnelError> {
         let request_id = tunnel_req.request_id.clone();
         let json = protocol::serialize_request(&tunnel_req);
 
         let (resp_tx, resp_rx) = oneshot::channel();
-        let timeout;
 
-        {
+        // Register the pending request before sending so a fast response can't be missed,
+        // and send outside the lock so one slow client can't stall the whole server.
+        let (outgoing_tx, timeout) = {
             let mut state = self.state.lock().await;
-            timeout = state.config.timeout;
-
-            let Some(conn) = state.services.get(&incoming.service) else {
-                return protocol::error_response(
-                    &request_id,
-                    502,
-                    "no client connected for service",
-                );
+            let Some(conn) = state.services.get(&tunnel_req.service) else {
+                return Err(TunnelError::NotConnected);
             };
+            let conn_id = conn.conn_id;
+            let outgoing_tx = conn.outgoing_tx.clone();
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    conn_id,
+                    tx: resp_tx,
+                },
+            );
+            (outgoing_tx, state.config.timeout)
+        };
 
-            if conn.outgoing_tx.send(json).await.is_err() {
-                return protocol::error_response(&request_id, 502, "client connection lost");
-            }
+        let exchange = async {
+            outgoing_tx
+                .send(json)
+                .await
+                .map_err(|_| TunnelError::ConnectionLost)?;
+            resp_rx.await.map_err(|_| TunnelError::Disconnected)
+        };
 
-            state.pending.insert(request_id.clone(), resp_tx);
+        let result = tokio::time::timeout(timeout, exchange)
+            .await
+            .unwrap_or(Err(TunnelError::Timeout));
+        if result.is_err() {
+            self.state.lock().await.pending.remove(&request_id);
         }
-
-        match tokio::time::timeout(timeout, resp_rx).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(_)) => {
-                // Sender dropped — client disconnected
-                self.state.lock().await.pending.remove(&request_id);
-                protocol::error_response(&request_id, 502, "client disconnected")
-            }
-            Err(_) => {
-                // Timeout
-                self.state.lock().await.pending.remove(&request_id);
-                protocol::error_response(&request_id, 504, "tunnel timeout")
-            }
-        }
+        result
     }
 
     /// Returns true if a client is connected for the given service.
@@ -129,9 +192,20 @@ impl OutpunchServer {
         state.services.contains_key(service)
     }
 
-    async fn cleanup_connection(&self, service: &str) {
+    /// Unregister a connection and fail the requests still waiting on it. A newer
+    /// connection registered under the same service is left in place.
+    async fn cleanup_connection(&self, service: &str, conn_id: u64) {
         let mut state = self.state.lock().await;
-        state.services.remove(service);
+        if state
+            .services
+            .get(service)
+            .is_some_and(|handle| handle.conn_id == conn_id)
+        {
+            state.services.remove(service);
+        }
+        state
+            .pending
+            .retain(|_, pending| pending.conn_id != conn_id);
     }
 }
 
@@ -157,6 +231,7 @@ struct ConnectionRunState {
 type MessageCallback = Box<dyn Fn(String) + Send + Sync>;
 
 struct ConnectionInner {
+    id: u64,
     server: OutpunchServer,
     incoming_tx: std::sync::Mutex<Option<mpsc::Sender<String>>>,
     callback: std::sync::Mutex<Option<MessageCallback>>,
@@ -235,15 +310,20 @@ impl Connection {
             }
         };
 
-        // Register service
-        {
+        // Register service. The newest connection wins; a replaced connection is closed.
+        let replaced = {
             let mut state = self.inner.server.state.lock().await;
             state.services.insert(
                 service.clone(),
                 ServiceHandle {
+                    conn_id: self.inner.id,
                     outgoing_tx: outgoing_tx.clone(),
+                    connection: Arc::downgrade(&self.inner),
                 },
-            );
+            )
+        };
+        if let Some(old) = replaced.and_then(|handle| handle.connection.upgrade()) {
+            old.incoming_tx.lock().unwrap().take();
         }
 
         // Relay loop: read responses from the client
@@ -255,14 +335,21 @@ impl Connection {
 
             if let Message::Response(response) = msg {
                 let mut state = self.inner.server.state.lock().await;
-                if let Some(sender) = state.pending.remove(&response.request_id) {
-                    let _ = sender.send(response);
+                let ours = state
+                    .pending
+                    .get(&response.request_id)
+                    .is_some_and(|pending| pending.conn_id == self.inner.id);
+                if ours && let Some(pending) = state.pending.remove(&response.request_id) {
+                    let _ = pending.tx.send(response);
                 }
             }
         }
 
         // Cleanup
-        self.inner.server.cleanup_connection(&service).await;
+        self.inner
+            .server
+            .cleanup_connection(&service, self.inner.id)
+            .await;
         drop(outgoing_tx);
         let _ = drain_handle.await;
     }
@@ -272,7 +359,16 @@ impl Connection {
         incoming_rx: &mut mpsc::Receiver<String>,
         outgoing_tx: &mpsc::Sender<String>,
     ) -> Option<String> {
-        let raw = incoming_rx.recv().await?;
+        let auth_timeout = self.inner.server.state.lock().await.config.auth_timeout;
+        let Ok(raw) = tokio::time::timeout(auth_timeout, incoming_rx.recv()).await else {
+            let err = protocol::AuthError {
+                msg_type: "auth_error".to_string(),
+                message: "auth timeout".to_string(),
+            };
+            let _ = outgoing_tx.send(serde_json::to_string(&err).unwrap()).await;
+            return None;
+        };
+        let raw = raw?;
 
         let msg = match protocol::parse_message(&raw) {
             Ok(Message::Auth(auth)) => auth,
@@ -288,7 +384,7 @@ impl Connection {
 
         let valid = {
             let state = self.inner.server.state.lock().await;
-            constant_time_eq(&msg.token, &state.config.secret)
+            !state.config.secret.is_empty() && constant_time_eq(&msg.token, &state.config.secret)
         };
 
         if !valid {

@@ -57,8 +57,20 @@ pub async fn run_connection(
     let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
     ping_interval.tick().await; // discard immediate first tick
 
+    // Requests are forwarded concurrently; their responses come back on this channel so
+    // only this loop writes to the WebSocket.
+    let (response_tx, mut response_rx) = tokio::sync::mpsc::unbounded_channel::<TunnelResponse>();
+    let mut in_flight = tokio::task::JoinSet::new();
+
     loop {
         tokio::select! {
+            Some(response) = response_rx.recv() => {
+                eprintln!("[{:.8}] -> {}", response.request_id, response.status);
+                ws_sink
+                    .send(WsMessage::text(protocol::serialize_response(&response)))
+                    .await?;
+            }
+            Some(_) = in_flight.join_next(), if !in_flight.is_empty() => {}
             msg = ws_stream.next() => {
                 let msg = match msg {
                     Some(Ok(m)) => m,
@@ -72,11 +84,13 @@ pub async fn run_connection(
                 match protocol::parse_message(&text) {
                     Ok(Message::Request(req)) => {
                         eprintln!("[{:.8}] {} /{}", req.request_id, req.method, req.path);
-                        let response = forward_request(&http_client, config, &req).await;
-                        eprintln!("[{:.8}] -> {}", req.request_id, response.status);
-                        ws_sink
-                            .send(WsMessage::text(protocol::serialize_response(&response)))
-                            .await?;
+                        let http_client = http_client.clone();
+                        let config = config.clone();
+                        let response_tx = response_tx.clone();
+                        in_flight.spawn(async move {
+                            let response = forward_request(&http_client, &config, &req).await;
+                            let _ = response_tx.send(response);
+                        });
                     }
                     Ok(_) => continue,
                     Err(_) => continue,
