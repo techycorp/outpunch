@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Rails Engine adapter for the outpunch reverse WebSocket tunnel"
   spec.license = "MIT"
 
-  spec.files         = ["lib/outpunch.rb"] + Dir["lib/**/*.rb"] + Dir["app/**/*.rb"]
+  spec.files         = Dir["lib/**/*.rb"] + Dir["app/**/*.rb"]
   spec.require_paths = ["lib"]
 
   spec.required_ruby_version = ">= 3.1"

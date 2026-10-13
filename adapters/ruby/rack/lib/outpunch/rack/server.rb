@@ -1,79 +1,41 @@
 # frozen_string_literal: true
 
-require "concurrent"
-require "securerandom"
-require "timeout"
-require "openssl"
+require "outpunch/outpunch"
 require "base64"
 require "json"
 
 module Outpunch
   module Rack
+    # Ruby-facing wrapper around the native outpunch core server.
     class Server
       HOP_BY_HOP = %w[HOST CONNECTION UPGRADE].freeze
 
       def initialize(secret:, timeout: 25)
-        @secret = secret
-        @timeout = timeout
-        @connections = Concurrent::Map.new
-        @pending_requests = Concurrent::Map.new
+        raise ArgumentError, "outpunch secret must be set" if secret.nil? || secret.to_s.empty?
+
+        @native = Outpunch::Server.new(secret.to_s, timeout.to_f, nil)
       end
 
       def create_connection
-        Connection.new(self)
-      end
-
-      # Register a service connection. Called by Connection after successful auth.
-      def register_connection(service_name, conn)
-        @connections[service_name] = conn
-      end
-
-      # Remove a service connection. Called by Connection on close.
-      def unregister_connection(service_name)
-        @connections.delete(service_name)
+        Connection.new(@native.create_connection)
       end
 
       def connected?(service_name)
-        @connections.key?(service_name)
+        @native.connected?(service_name.to_s)
       end
 
       # Send a request through the tunnel and block until response or timeout.
+      # Raises Outpunch::NotConnectedError (a RuntimeError) when no client is connected
+      # and Outpunch::TunnelTimeoutError (a Timeout::Error) on timeout.
       def handle_request(service:, method:, path:, query:, headers:, body:)
-        conn = @connections[service]
-        raise "Service '#{service}' not connected" unless conn
-
-        request_id = SecureRandom.uuid
-        queue = Queue.new
-        @pending_requests[request_id] = queue
-
-        conn.send_request(
-          request_id: request_id,
-          service: service,
-          method: method,
-          path: path,
-          query: query,
-          headers: headers,
-          body: body
+        @native.handle_request(
+          service.to_s,
+          method.to_s,
+          path.to_s,
+          stringify(query),
+          stringify(headers),
+          body&.to_s
         )
-
-        begin
-          Timeout.timeout(@timeout) { queue.pop }
-        ensure
-          @pending_requests.delete(request_id)
-        end
-      end
-
-      # Deliver a response to a waiting handle_request call.
-      def complete_request(request_id, response_data)
-        @pending_requests[request_id]&.push(response_data)
-      end
-
-      # Constant-time token validation.
-      def valid_token?(token)
-        return false if @secret.nil? || @secret.empty? || token.nil? || token.empty?
-        return false if token.bytesize != @secret.bytesize
-
-        OpenSSL.fixed_length_secure_compare(token, @secret)
       end
 
       # Build a success result hash from raw tunnel response data.
@@ -112,10 +74,10 @@ module Outpunch
           .reject { |k, _| HOP_BY_HOP.include?(k) }
       end
 
-      # For test isolation — resets all state.
-      def reset!
-        @connections.clear
-        @pending_requests.clear
+      private
+
+      def stringify(hash)
+        (hash || {}).to_h.to_h { |k, v| [k.to_s, v.to_s] }
       end
     end
   end

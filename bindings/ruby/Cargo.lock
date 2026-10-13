@@ -1098,6 +1098,7 @@ name = "outpunch"
 version = "0.1.0"
 dependencies = [
  "magnus",
+ "outpunch 0.1.1",
  "outpunch-client",
  "rb-sys",
  "rb-sys-build",

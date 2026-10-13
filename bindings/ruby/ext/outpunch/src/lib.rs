@@ -1,7 +1,10 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use magnus::{function, method, prelude::*, wrap, Error, Ruby};
+use magnus::{Error, Ruby, function, method, prelude::*, wrap};
+
+mod gvl;
+mod server;
 
 struct ClientConfigInner {
     server_url: String,
@@ -154,6 +157,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     module.define_module_function("run", function!(run, 1))?;
     module.define_module_function("run_connection", function!(run_connection, 1))?;
+
+    server::init(ruby, &module)?;
 
     Ok(())
 }

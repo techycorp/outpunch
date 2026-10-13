@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.1"
 
   spec.add_dependency "websocket-driver", ">= 0.7"
-  spec.add_dependency "concurrent-ruby", ">= 1.0"
+  spec.add_dependency "outpunch", "~> 0.2"
 
   spec.add_development_dependency "rspec", "~> 3.12"
   spec.add_development_dependency "rack", "~> 3.0"

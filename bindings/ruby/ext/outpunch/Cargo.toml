@@ -12,6 +12,7 @@ outpunch-client = { version = "0.1.1", path = "../../../../crates/outpunch-clien
 magnus = { version = "0.8" }
 rb-sys = { version = "0.9", features = ["stable-api-compiled-fallback"] }
 tokio = { version = "1.50.0", features = ["full"] }
+outpunch_core = { version = "0.1.1", path = "../../../../crates/outpunch", package = "outpunch" }
 
 [build-dependencies]
 rb-sys-build = "0.9"

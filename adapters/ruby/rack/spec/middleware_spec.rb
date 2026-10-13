@@ -22,13 +22,15 @@ RSpec.describe Outpunch::Rack::Middleware do
       it "hijacks the connection and returns -1" do
         conn = instance_double(Outpunch::Rack::Connection)
         allow(server).to receive(:create_connection).and_return(conn)
-        allow(conn).to receive(:run)
+        started = Queue.new
+        allow(conn).to receive(:run) { started.push(:started) }
 
         env = ws_env
         hijacked = false
         env["rack.hijack"] = -> { hijacked = true }
 
         status, = middleware.call(env)
+        started.pop
 
         expect(hijacked).to be true
         expect(status).to eq(-1)

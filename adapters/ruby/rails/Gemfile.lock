@@ -1,15 +1,21 @@
 PATH
+  remote: ../../../bindings/ruby
+  specs:
+    outpunch (0.2.0)
+      rb_sys (~> 0.9)
+
+PATH
   remote: ../rack
   specs:
-    outpunch-rack (0.1.0)
-      concurrent-ruby (>= 1.0)
+    outpunch-rack (0.2.0)
+      outpunch (~> 0.2)
       websocket-driver (>= 0.7)
 
 PATH
   remote: .
   specs:
-    outpunch (0.1.0)
-      outpunch-rack (~> 0.1)
+    outpunch-rails (0.2.0)
+      outpunch-rack (= 0.2.0)
       railties (>= 7.0)
 
 GEM
@@ -179,6 +185,9 @@ GEM
       thor (~> 1.0)
       zeitwerk (~> 2.5)
     rake (13.3.1)
+    rake-compiler-dock (1.12.0)
+    rb_sys (0.9.130)
+      rake-compiler-dock (= 1.12.0)
     rspec (3.13.2)
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
@@ -222,8 +231,9 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  outpunch!
+  outpunch (~> 0.2.0)!
   outpunch-rack!
+  outpunch-rails!
   rails (~> 7.0.0)
   rspec (~> 3.12)
   rspec-rails (~> 6.0)

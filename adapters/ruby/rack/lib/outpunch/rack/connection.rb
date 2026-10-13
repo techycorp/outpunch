@@ -1,14 +1,15 @@
 # frozen_string_literal: true
 
 require "websocket/driver"
-require "json"
 
 module Outpunch
   module Rack
+    # Bridges a hijacked Rack socket to a native outpunch core connection.
+    # Ruby handles socket I/O and WebSocket framing; the core handles auth,
+    # routing and request state.
     class Connection
-      def initialize(server)
-        @server = server
-        @service_name = nil
+      def initialize(native)
+        @native = native
         @write_mutex = Mutex.new
         @io = nil
         @driver = nil
@@ -20,26 +21,24 @@ module Outpunch
         @env = env
         @io = env.fetch("rack.hijack_io")
         @driver = WebSocket::Driver.rack(self)
-        @driver.on(:message) { |event| on_message(event.data) }
-        @driver.on(:close)   { on_close }
+        @driver.on(:message) { |event| @native.push_message(event.data) }
+        @driver.on(:close)   { @native.close }
         @driver.on(:error)   { |e| log_error(e.message) }
         @driver.start
+
+        core = Thread.new { @native.run }
+        writer = Thread.new { write_loop }
 
         while (chunk = @io.readpartial(4096))
           @driver.parse(chunk)
         end
-      rescue EOFError, IOError, Errno::ECONNRESET
+      rescue EOFError, IOError, Errno::ECONNRESET, Errno::EPIPE
         # normal close
       ensure
-        on_close
-      end
-
-      # Called by Server#handle_request to send a request over the wire.
-      def send_request(payload)
-        msg = payload
-          .merge(type: "request")
-          .transform_keys(&:to_s)
-        transmit(msg)
+        @native.close
+        core&.join
+        writer&.join
+        close_io
       end
 
       # Called by websocket-driver to write raw bytes to the socket.
@@ -62,38 +61,20 @@ module Outpunch
 
       private
 
-      def on_message(raw)
-        data = JSON.parse(raw)
-        case data["type"]
-        when "auth"     then handle_auth(data)
-        when "response" then @server.complete_request(data["request_id"], data)
-        else
-          # unknown message type — ignore
+      # Deliver core messages to the client until the core connection ends, then
+      # close the socket so the read loop in #run returns.
+      def write_loop
+        while (msg = @native.next_outgoing)
+          @write_mutex.synchronize { @driver.text(msg) }
         end
-      rescue JSON::ParserError
+        @write_mutex.synchronize { @driver.close }
+        close_io
+      end
+
+      def close_io
+        @io.close unless @io.closed?
+      rescue IOError
         nil
-      end
-
-      def handle_auth(data)
-        if @server.valid_token?(data["token"]) && !data["service"].to_s.empty?
-          @service_name = data["service"]
-          @server.register_connection(@service_name, self)
-          transmit(type: "auth_ok")
-        else
-          transmit(type: "auth_error", message: "invalid token")
-          @driver.close
-        end
-      end
-
-      def on_close
-        return unless @service_name
-
-        @server.unregister_connection(@service_name)
-        @service_name = nil
-      end
-
-      def transmit(data)
-        @write_mutex.synchronize { @driver.text(JSON.generate(data)) }
       end
 
       def log_error(message)

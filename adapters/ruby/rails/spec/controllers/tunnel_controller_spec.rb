@@ -5,16 +5,21 @@ require "spec_helper"
 RSpec.describe Outpunch::TunnelController, type: :request do
   let(:service_name) { "testservice" }
   let(:service_path) { "api/test" }
-  let(:conn)         { double("connection", send_request: nil) }
+
+  # Stubs the tunnel as connected; the block receives handle_request's kwargs and
+  # returns the client's response data.
+  def connect_tunnel(&responder)
+    allow(OutpunchRails).to receive(:connected?).with(service_name).and_return(true)
+    responder ||= ->(_kwargs) { { "status" => 200, "body" => "ok", "headers" => {} } }
+    allow(OutpunchRails).to receive(:handle_request) { |**kwargs| responder.call(kwargs) }
+  end
 
   before do
-    OutpunchRails.server.reset!
     Outpunch::Rack::Hooks.clear!
     OutpunchRails.configuration.authorize_service = nil
   end
 
   after do
-    OutpunchRails.server.reset!
     Outpunch::Rack::Hooks.clear!
     OutpunchRails.configuration.authorize_service = nil
   end
@@ -31,7 +36,7 @@ RSpec.describe Outpunch::TunnelController, type: :request do
 
     context "when authorize_service blocks the request" do
       before do
-        OutpunchRails.server.register_connection(service_name, conn)
+        connect_tunnel
         OutpunchRails.configuration.authorize_service = ->(_svc, _req) { false }
       end
 
@@ -45,20 +50,11 @@ RSpec.describe Outpunch::TunnelController, type: :request do
 
     context "when authorize_service allows the request" do
       before do
-        OutpunchRails.server.register_connection(service_name, conn)
+        connect_tunnel
         OutpunchRails.configuration.authorize_service = ->(_svc, _req) { true }
       end
 
       it "proxies the request and returns the response" do
-        allow(conn).to receive(:send_request) do |payload|
-          Thread.new do
-            sleep 0.01
-            OutpunchRails.server.complete_request(payload[:request_id], {
-              "status" => 200, "body" => "ok", "headers" => {}
-            })
-          end
-        end
-
         get "/outpunch/#{service_name}/#{service_path}"
 
         expect(response.status).to eq(200)
@@ -67,18 +63,9 @@ RSpec.describe Outpunch::TunnelController, type: :request do
     end
 
     context "when connected with no authorize_service set" do
-      before { OutpunchRails.server.register_connection(service_name, conn) }
+      before { connect_tunnel }
 
       it "proxies without authorization check" do
-        allow(conn).to receive(:send_request) do |payload|
-          Thread.new do
-            sleep 0.01
-            OutpunchRails.server.complete_request(payload[:request_id], {
-              "status" => 200, "body" => "ok", "headers" => {}
-            })
-          end
-        end
-
         get "/outpunch/#{service_name}/#{service_path}"
 
         expect(response.status).to eq(200)
@@ -87,49 +74,39 @@ RSpec.describe Outpunch::TunnelController, type: :request do
   end
 
   describe "HTTP method forwarding" do
-    before { OutpunchRails.server.register_connection(service_name, conn) }
-
     %w[GET POST PUT PATCH DELETE].each do |http_method|
       it "forwards #{http_method}" do
-        allow(conn).to receive(:send_request) do |payload|
-          expect(payload[:method]).to eq(http_method)
-          Thread.new do
-            sleep 0.01
-            OutpunchRails.server.complete_request(payload[:request_id], {
-              "status" => 200, "body" => "ok", "headers" => {}
-            })
-          end
+        forwarded = nil
+        connect_tunnel do |kwargs|
+          forwarded = kwargs[:method]
+          { "status" => 200, "body" => "ok", "headers" => {} }
         end
 
         send(http_method.downcase.to_sym, "/outpunch/#{service_name}/#{service_path}")
 
         expect(response.status).to eq(200)
+        expect(forwarded).to eq(http_method)
       end
     end
   end
 
   describe "query parameter forwarding" do
-    before { OutpunchRails.server.register_connection(service_name, conn) }
-
     it "forwards query parameters" do
-      allow(conn).to receive(:send_request) do |payload|
-        expect(payload[:query]).to include("foo" => "bar")
-        Thread.new do
-          sleep 0.01
-          OutpunchRails.server.complete_request(payload[:request_id], {
-            "status" => 200, "body" => "ok", "headers" => {}
-          })
-        end
+      forwarded = nil
+      connect_tunnel do |kwargs|
+        forwarded = kwargs[:query]
+        { "status" => 200, "body" => "ok", "headers" => {} }
       end
 
       get "/outpunch/#{service_name}/#{service_path}?foo=bar"
 
       expect(response.status).to eq(200)
+      expect(forwarded).to include("foo" => "bar")
     end
   end
 
   describe "error handling" do
-    before { OutpunchRails.server.register_connection(service_name, conn) }
+    before { connect_tunnel }
 
     it "returns 504 on timeout" do
       allow(OutpunchRails).to receive(:handle_request).and_raise(Timeout::Error)
@@ -138,6 +115,14 @@ RSpec.describe Outpunch::TunnelController, type: :request do
 
       expect(response.status).to eq(504)
       expect(JSON.parse(response.body)["error"]).to include("timeout")
+    end
+
+    it "returns 504 on a native tunnel timeout" do
+      allow(OutpunchRails).to receive(:handle_request).and_raise(Outpunch::TunnelTimeoutError)
+
+      get "/outpunch/#{service_name}/#{service_path}"
+
+      expect(response.status).to eq(504)
     end
 
     it "returns 502 on other errors" do
@@ -151,22 +136,16 @@ RSpec.describe Outpunch::TunnelController, type: :request do
   end
 
   describe "binary response handling" do
-    before { OutpunchRails.server.register_connection(service_name, conn) }
-
     it "decodes base64 body" do
       pdf_content = "%PDF-1.4 fake"
       encoded     = Base64.encode64(pdf_content)
-
-      allow(conn).to receive(:send_request) do |payload|
-        Thread.new do
-          sleep 0.01
-          OutpunchRails.server.complete_request(payload[:request_id], {
-            "status"        => 200,
-            "body"          => encoded,
-            "body_encoding" => "base64",
-            "headers"       => { "content-type" => "application/pdf" }
-          })
-        end
+      connect_tunnel do |_kwargs|
+        {
+          "status"        => 200,
+          "body"          => encoded,
+          "body_encoding" => "base64",
+          "headers"       => { "content-type" => "application/pdf" }
+        }
       end
 
       get "/outpunch/#{service_name}/#{service_path}"
@@ -177,20 +156,16 @@ RSpec.describe Outpunch::TunnelController, type: :request do
 
     it "passes content-disposition filename through" do
       encoded = Base64.encode64("data")
-
-      allow(conn).to receive(:send_request) do |payload|
-        Thread.new do
-          sleep 0.01
-          OutpunchRails.server.complete_request(payload[:request_id], {
-            "status"        => 200,
-            "body"          => encoded,
-            "body_encoding" => "base64",
-            "headers"       => {
-              "content-type"        => "application/pdf",
-              "content-disposition" => 'attachment; filename="report.pdf"'
-            }
-          })
-        end
+      connect_tunnel do |_kwargs|
+        {
+          "status"        => 200,
+          "body"          => encoded,
+          "body_encoding" => "base64",
+          "headers"       => {
+            "content-type"        => "application/pdf",
+            "content-disposition" => 'attachment; filename="report.pdf"'
+          }
+        }
       end
 
       get "/outpunch/#{service_name}/#{service_path}"
@@ -217,7 +192,7 @@ RSpec.describe Outpunch::TunnelController, type: :request do
     end
 
     before do
-      OutpunchRails.server.register_connection(service_name, conn)
+      connect_tunnel
       OutpunchRails.configuration.hooks = hook_module
       hook_module.reset!
     end
@@ -225,15 +200,6 @@ RSpec.describe Outpunch::TunnelController, type: :request do
     after { OutpunchRails.configuration.hooks = Outpunch::Rack::Hooks }
 
     it "calls before_proxy and after_proxy" do
-      allow(conn).to receive(:send_request) do |payload|
-        Thread.new do
-          sleep 0.01
-          OutpunchRails.server.complete_request(payload[:request_id], {
-            "status" => 200, "body" => "ok", "headers" => {}
-          })
-        end
-      end
-
       post "/outpunch/#{service_name}/#{service_path}"
 
       expect(hook_module.calls[:before].length).to eq(1)
