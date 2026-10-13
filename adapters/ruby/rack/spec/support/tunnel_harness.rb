@@ -13,19 +13,21 @@ module TunnelHarness
     def initialize(port, service:, token:)
       messages = @messages = Queue.new
       closed = @closed = Queue.new
-      ws = @ws = WebSocket::Client::Simple.connect("ws://127.0.0.1:#{port}/ws")
-      ws.on(:open) { ws.send(JSON.generate(type: "auth", token: token, service: service)) }
-      ws.on(:message) do |msg|
-        case msg.type
-        when :text then messages << JSON.parse(msg.data)
-        when :close then closed << true
+      # Handlers are registered in the block so they exist before the handshake starts.
+      @ws = WebSocket::Client::Simple.connect("ws://127.0.0.1:#{port}/ws") do |ws|
+        ws.on(:open) { ws.send(JSON.generate(type: "auth", token: token, service: service)) }
+        ws.on(:message) do |msg|
+          case msg.type
+          when :text then messages << JSON.parse(msg.data)
+          when :close then closed << true
+          end
         end
+        ws.on(:close) { closed << true }
       end
-      ws.on(:close) { closed << true }
     end
 
     def next_message(timeout: 2)
-      @messages.pop(timeout: timeout)
+      pop_within(@messages, timeout)
     end
 
     def respond(request, status: 200, body: "ok")
@@ -38,7 +40,21 @@ module TunnelHarness
     end
 
     def closed?(timeout: 2)
-      !@closed.pop(timeout: timeout).nil?
+      !pop_within(@closed, timeout).nil?
+    end
+
+    private
+
+    # Queue#pop(timeout:) needs Ruby 3.2; poll so the specs also run on 3.1.
+    def pop_within(queue, timeout)
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+      loop do
+        return queue.pop(true)
+      rescue ThreadError
+        return nil if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+        sleep 0.01
+      end
     end
   end
 
