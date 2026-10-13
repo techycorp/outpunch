@@ -79,3 +79,7 @@ The client's keepalive ping interval is hard-coded at 30s. Make it a `ClientConf
 ## Precompiled Ruby Gems
 
 The native `outpunch` gem is published as source and compiles its Rust extension on install, so every app using `outpunch-rack` or `outpunch-rails` needs a Rust toolchain at install time (a problem for many deploy platforms). Publish precompiled platform gems with rb-sys's cross-compilation tooling, keeping the source gem as a fallback.
+
+## Running Across Multiple Server Instances
+
+The server only works as a single instance, because connected clients and pending requests live in one process's memory. Supporting a horizontally scaled app is an open question with no plans yet. See [distributed.md](distributed.md) for a first-pass, unreviewed analysis of the options.
