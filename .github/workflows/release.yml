@@ -243,8 +243,13 @@ jobs:
   publish-rubygems:
     name: Publish to RubyGems
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') && needs.detect-changes.outputs.ruby == 'true'
-    needs: [detect-changes]
+    # The native gem resolves the outpunch crates from crates.io, so they must be published
+    # first. publish-crates is skipped when no crate changed; that's fine, they already exist.
+    if: >-
+      !cancelled() && startsWith(github.ref, 'refs/tags/')
+      && needs.detect-changes.outputs.ruby == 'true'
+      && needs.publish-crates.result != 'failure'
+    needs: [detect-changes, publish-crates]
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
@@ -255,14 +260,12 @@ jobs:
       - name: Build and publish outpunch (native gem)
         working-directory: bindings/ruby
         run: |
-          # The gem compiles on install, outside this repo: vendor the Rust crates it
-          # depends on and point the extension's path dependencies at the copies.
-          mkdir -p ext/outpunch/vendor
-          for crate in outpunch outpunch-client; do
-            mkdir -p "ext/outpunch/vendor/$crate"
-            cp -R "../../crates/$crate/Cargo.toml" "../../crates/$crate/src" "ext/outpunch/vendor/$crate/"
-          done
-          sed -i 's#"../../../../crates/#"vendor/#' ext/outpunch/Cargo.toml
+          # The gem compiles on install, outside this repo: drop the local path
+          # dependencies so the outpunch crates resolve from crates.io by version.
+          sed -i -E 's/, path = "[^"]*"//' ext/outpunch/Cargo.toml
+          if grep -q 'path = ' ext/outpunch/Cargo.toml; then
+            echo "path dependency left in ext/outpunch/Cargo.toml" && exit 1
+          fi
           bundle install
           gem build outpunch.gemspec
           gem push outpunch-*.gem || echo "Already published"

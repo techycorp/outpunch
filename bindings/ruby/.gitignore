@@ -2,4 +2,3 @@ target/
 tmp/
 lib/outpunch/*.bundle
 *.gem
-ext/outpunch/vendor/
