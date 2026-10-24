@@ -44,6 +44,11 @@ class Outpunch::TunnelController < OutpunchRails.configuration.base_controller.c
     run_hook(:after_proxy, service_name, service_path, payload, result: result)
 
     render_tunnel_result(result)
+  rescue Outpunch::HookHalt => e
+    # A hook (e.g. before_proxy) deliberately short-circuited with its own status/body;
+    # handle_request was never reached, so nothing was forwarded upstream. Must precede
+    # the catch-all so a real hook halt isn't flattened into a generic 502.
+    render json: e.body, status: e.status
   rescue Timeout::Error
     render_error(504, "Tunnel timeout for service '#{params[:service_name]}'")
   rescue => e

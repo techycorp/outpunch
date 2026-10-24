@@ -210,4 +210,40 @@ RSpec.describe Outpunch::TunnelController, type: :request do
       expect(hook_module.calls[:after].first[:result]).to include(:status, :body)
     end
   end
+
+  describe "a before_proxy hook that raises HookHalt" do
+    before { connect_tunnel }
+    after  { OutpunchRails.configuration.hooks = Outpunch::Rack::Hooks }
+
+    it "short-circuits with the hook's status + body and never forwards upstream" do
+      OutpunchRails.configuration.hooks = Module.new do
+        def self.before_proxy(service_name:, path:, payload:, request:)
+          raise Outpunch::HookHalt.new(402, { error: "payment required" })
+        end
+
+        def self.after_proxy(**); end
+      end
+
+      get "/outpunch/#{service_name}/#{service_path}"
+
+      expect(response.status).to eq(402)
+      expect(JSON.parse(response.body)).to eq("error" => "payment required")
+      expect(OutpunchRails).not_to have_received(:handle_request) # upstream never reached
+    end
+
+    it "preserves catch-all precedence: a plain StandardError from a hook still yields 502" do
+      OutpunchRails.configuration.hooks = Module.new do
+        def self.before_proxy(service_name:, path:, payload:, request:)
+          raise StandardError, "hook boom"
+        end
+
+        def self.after_proxy(**); end
+      end
+
+      get "/outpunch/#{service_name}/#{service_path}"
+
+      expect(response.status).to eq(502)
+      expect(JSON.parse(response.body)["error"]).to include("hook boom")
+    end
+  end
 end
