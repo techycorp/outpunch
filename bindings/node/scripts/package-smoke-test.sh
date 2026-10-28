@@ -4,9 +4,9 @@
 #   scripts/package-smoke-test.sh [platform package dir containing its .node binary]
 # Without an argument, the platform package is assembled from the binary `napi build --platform` left
 # in the package root.
-set -euo pipefail
 # The node -e programs are single-quoted on purpose: their ${...} is JavaScript, not shell.
 # shellcheck disable=SC2016
+set -euo pipefail
 
 node_dir=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
