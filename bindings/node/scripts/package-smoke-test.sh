@@ -5,6 +5,8 @@
 # Without an argument, the platform package is assembled from the binary `napi build --platform` left
 # in the package root.
 set -euo pipefail
+# The node -e programs are single-quoted on purpose: their ${...} is JavaScript, not shell.
+# shellcheck disable=SC2016
 
 node_dir=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)

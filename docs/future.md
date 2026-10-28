@@ -87,3 +87,7 @@ The server only works as a single instance, because connected clients and pendin
 ## Ruby on Windows
 
 The Ruby gems are unsupported on Windows. In CI (MSYS2/UCRT, Ruby 3.1 to 3.3) the native gem's spec run exits with code 1 after about 17 examples and prints no error, which suggests a crash in the native extension (likely the GVL-release path). Diagnose it, then add `windows-latest` back to the `ruby-test` CI matrix.
+
+## Intermittent Missing `auth_ok` in the Rack Adapter Specs
+
+Open bug, cause unknown. In CI (run 40771389437, Ubuntu, Ruby 3.2), `connection_spec.rb` "relays requests with string query and header values" got no `auth_ok` within the harness's 2s wait. The same spec passed on the surrounding commits, and 62 local runs (30 plain, 32 with every core busy) never failed. Unknown whether it is test timing on a slow runner or a real delay in the hijacked-socket path (`Outpunch::Rack::Connection`: read loop, writer thread, and core thread share one `WebSocket::Driver`, and only writes from the writer thread hold the mutex). Next step: log timestamps for open, auth sent, auth pushed to the core, and `auth_ok` written, so the next failure shows where the time goes.
