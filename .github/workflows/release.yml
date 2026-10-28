@@ -75,7 +75,8 @@ jobs:
 
   pypi-linux:
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 30
+    # yum inside the manylinux container can take 25+ minutes on a slow AlmaLinux mirror.
+    timeout-minutes: 60
     needs: [verify-version]
     strategy:
       matrix:

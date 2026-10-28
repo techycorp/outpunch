@@ -91,3 +91,9 @@ The Ruby gems are unsupported on Windows. In CI (MSYS2/UCRT, Ruby 3.1 to 3.3) th
 ## Intermittent Missing `auth_ok` in the Rack Adapter Specs
 
 Open bug, cause unknown. In CI (run 40771389437, Ubuntu, Ruby 3.2), `connection_spec.rb` "relays requests with string query and header values" got no `auth_ok` within the harness's 2s wait. The same spec passed on the surrounding commits, and 62 local runs (30 plain, 32 with every core busy) never failed. Unknown whether it is test timing on a slow runner or a real delay in the hijacked-socket path (`Outpunch::Rack::Connection`: read loop, writer thread, and core thread share one `WebSocket::Driver`, and only writes from the writer thread hold the mutex). Next step: log timestamps for open, auth sent, auth pushed to the core, and `auth_ok` written, so the next failure shows where the time goes.
+
+Second occurrence: CI run 40779480819 (Ubuntu, Ruby 3.2 again), in `concurrency_spec.rb`. Both failures are on Ruby 3.2 on Linux, so this may be a real bug for users on that Ruby, not only a slow test. `outpunch-ruby-rack` 0.5.0 ships this code.
+
+## Use rustls Instead of OpenSSL
+
+`outpunch-client` gets TLS from the system OpenSSL (`reqwest` and `tokio-tungstenite` with `native-tls`). The x86_64 Linux wheel build therefore runs `yum install openssl-devel` inside the manylinux container, and AlmaLinux's mirrors can make that take 25+ minutes (v0.5.0 dry runs: 4, 21+ and 28 minutes for the same code). Switching both to `rustls` removes the system dependency and the `yum` step, and makes every build hermetic.
