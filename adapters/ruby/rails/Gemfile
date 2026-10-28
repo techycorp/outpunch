@@ -7,7 +7,7 @@ gemspec
 gem "rspec", "~> 3.12"
 gem "rspec-rails", "~> 6.0"
 gem "rails", "~> 7.0.0"
-gem "outpunch-rack", path: "../rack"
+gem "outpunch-ruby-rack", path: "../rack"
 gem "tzinfo-data", platforms: [:mingw, :mswin, :x64_mingw]
 
-gem "outpunch", "~> 0.2.0", path: "../../../bindings/ruby"
+gem "outpunch-ruby", "~> 0.2.0", path: "../../../bindings/ruby"

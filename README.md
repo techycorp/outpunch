@@ -12,6 +12,10 @@ The core is a framework-agnostic Rust library — no web framework or WebSocket 
 
 **Client bindings** — Rust, Python, Node.js, Ruby
 
+> **Windows:** the Ruby gems are not supported on Windows yet. Other packages are tested on Windows.
+
+> **Ruby gem names:** install `outpunch-ruby`, `outpunch-ruby-rack` and `outpunch-ruby-rails`. Due to a clerical error we lost access to the RubyGems account that owns the original `outpunch`, `outpunch-rack` and `outpunch-rails` gems. We created those gems, and they are now orphaned at 0.1.x and will not get updates. If you have them installed, remove them before installing the new names, since both provide `require "outpunch"`. If we recover the account, we'll move back to the original names. `require` paths and module names are unchanged.
+
 ## Quick Start
 
 ### Server (Vite)

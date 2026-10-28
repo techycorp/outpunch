@@ -38,7 +38,7 @@ bindings/
     src/lib.rs
 
   ruby/                        # Ruby binding (client + core server)
-    outpunch.gemspec
+    outpunch-ruby.gemspec
     Cargo.toml                 # Magnus crate
     ext/outpunch/src/lib.rs
 ```

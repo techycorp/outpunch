@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    outpunch (0.2.0)
+    outpunch-ruby (0.2.0)
       rb_sys (~> 0.9)
 
 GEM
@@ -35,7 +35,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  outpunch!
+  outpunch-ruby!
   rake-compiler (~> 1.2)
   rb_sys (~> 0.9)
   rspec (~> 3.12)

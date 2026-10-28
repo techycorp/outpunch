@@ -165,7 +165,7 @@ Standalone mode (outpunch as its own process, host app reverse-proxies to it) is
 Language bindings use per-language FFI tools — each is a thin wrapper around the Rust core, not a reimplementation.
 
 - **Client bindings**: Python (PyO3), Node.js (Napi-RS), Ruby (Magnus) — shipped.
-- **Ruby server adapter**: `outpunch-rack` / `outpunch-rails` — shipped. Ruby handles socket I/O and WebSocket framing; auth, routing and request state run in the Rust core via the Magnus binding.
+- **Ruby server adapter**: `outpunch-ruby-rack` / `outpunch-ruby-rails` — shipped. Ruby handles socket I/O and WebSocket framing; auth, routing and request state run in the Rust core via the Magnus binding.
 - **Server adapters**: axum (Rust), Vite/http.Server (Node.js via Napi-RS) — shipped. Express, Fastify — planned.
 
 ## Open Questions

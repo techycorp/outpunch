@@ -1,13 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **Ruby gems are renamed:** `outpunch` → `outpunch-ruby`, `outpunch-rack` → `outpunch-ruby-rack`,
+  `outpunch-rails` → `outpunch-ruby-rails`. Due to a clerical error we lost access to the RubyGems
+  account that owns the original names. We created those gems; they are orphaned at 0.1.x. Remove
+  them before installing the new names, since both provide `require "outpunch"`. If we recover the
+  account, we'll move back to the original names. `require` paths and module names are unchanged.
+
+### Changed
+
+- The Ruby gems are not supported on Windows. CI no longer runs the Ruby tests on Windows.
+- Release publish steps fail on any error except "this version is already published". Previously
+  every publish error was ignored.
+
+### Release notes for v0.4.0
+
+The v0.4.0 release published only to crates.io and PyPI. The npm and RubyGems publishes failed
+and the release workflow ignored the errors. The Ruby gems will be published under the new names
+above, and npm in a later release.
+
 ## v0.4.0
 
 | Package | Registry | Version |
 |---|---|---|
 | `outpunch`, `outpunch-axum`, `outpunch-client` | crates.io | 0.2.0 |
-| `outpunch` | npm | 0.2.0 |
+| `outpunch` | npm | 0.2.0 (not published, see Unreleased) |
 | `outpunch` | PyPI | 0.2.2 |
-| `outpunch` (native gem), `outpunch-rack`, `outpunch-rails` | RubyGems | 0.2.0 |
+| `outpunch` (native gem), `outpunch-rack`, `outpunch-rails` | RubyGems | 0.2.0 (not published, see Unreleased) |
 
 ### Breaking changes
 

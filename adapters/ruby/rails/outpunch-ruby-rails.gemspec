@@ -3,7 +3,7 @@
 require_relative "lib/outpunch/rails/version"
 
 Gem::Specification.new do |spec|
-  spec.name    = "outpunch-rails"
+  spec.name    = "outpunch-ruby-rails"
   spec.version = Outpunch::Rails::VERSION
   spec.authors = ["TechyCorp"]
   spec.summary = "Rails Engine adapter for the outpunch reverse WebSocket tunnel"
@@ -14,7 +14,7 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.1"
 
-  spec.add_dependency "outpunch-rack", Outpunch::Rails::VERSION
+  spec.add_dependency "outpunch-ruby-rack", Outpunch::Rails::VERSION
   spec.add_dependency "railties", ">= 7.0"
 
   spec.add_development_dependency "rspec-rails", "~> 6.0"

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 Gem::Specification.new do |spec|
-  spec.name    = "outpunch"
+  spec.name    = "outpunch-ruby"
   spec.version = "0.2.0"
   spec.authors = ["TechyCorp"]
   spec.summary = "Ruby bindings for the outpunch tunnel client"
