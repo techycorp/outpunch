@@ -74,6 +74,8 @@ On a `v*` tag, `.github/workflows/release.yml`:
   release can be re-run); if not, the publish command runs and its exit status is the step's. Any
   unexpected registry response fails the step.
 - PyPI is per file, so it uses the publish action's `skip-existing` instead.
+- Every release job has a `timeout-minutes`, so a hung build or registry call fails the release
+  within minutes instead of stalling it for GitHub's 6-hour default.
 - CI fails if `release.yml` or `.github/scripts/` contain `continue-on-error`, `|| true`,
   `|| echo`, `|| :`, `|| exit 0` or `set +e`.
 - `.github/workflows/release-failure-check.yml` runs every publish command against the real

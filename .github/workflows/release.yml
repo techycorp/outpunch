@@ -16,6 +16,7 @@ permissions:
 jobs:
   verify-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -37,6 +38,7 @@ jobs:
   all-builds:
     name: All builds succeeded
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [pypi-linux, pypi-macos, pypi-windows, pypi-sdist, npm-build]
     steps:
       - run: echo "every artifact built; publishing can start"
@@ -44,6 +46,7 @@ jobs:
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'push'
     needs: [verify-version, all-builds]
     permissions:
@@ -72,6 +75,7 @@ jobs:
 
   pypi-linux:
     runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
     needs: [verify-version]
     strategy:
       matrix:
@@ -101,6 +105,7 @@ jobs:
 
   pypi-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     needs: [verify-version]
     strategy:
       matrix:
@@ -124,6 +129,7 @@ jobs:
 
   pypi-windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     needs: [verify-version]
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +156,7 @@ jobs:
 
   pypi-sdist:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [verify-version]
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +175,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'push'
     needs: [verify-version, all-builds]
     permissions:
@@ -197,6 +205,7 @@ jobs:
 
   npm-build:
     runs-on: ${{ matrix.settings.runner }}
+    timeout-minutes: 30
     needs: [verify-version]
     strategy:
       matrix:
@@ -232,6 +241,7 @@ jobs:
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'push'
     needs: [verify-version, all-builds]
     env:
@@ -291,6 +301,7 @@ jobs:
   publish-rubygems:
     name: Publish to RubyGems
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'push'
     # The native gem compiles against the outpunch crates from crates.io at install time.
     needs: [verify-version, publish-crates]
@@ -330,6 +341,7 @@ jobs:
   verify-published:
     name: Every package is live on its registry
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [verify-version, publish-crates, publish-pypi, publish-npm, publish-rubygems]
     steps:
       - uses: actions/checkout@v4
@@ -339,6 +351,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Runs only when every package is live.
     needs: [verify-published]
     permissions:
