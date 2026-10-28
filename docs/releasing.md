@@ -1,8 +1,9 @@
 # Releasing
 
 Every outpunch package, in every language, is published at the same version: the release tag's.
-A release publishes every package, even ones that did not change. When a package misses a
-release, it skips forward to the next shared version; versions are never back-filled.
+A release publishes every package, even ones that did not change. Packages first moved onto the
+shared version at 0.5.0, so each skipped the per-language versions between its last release and
+0.5.0.
 
 ## Cutting a release
 
@@ -81,9 +82,12 @@ On a `v*` tag, `.github/workflows/release.yml`:
 
 ### Re-running a failed release
 
-If the failure is transient (a registry outage), use **Re-run failed jobs**: packages already
-published are skipped, the rest are published.
+Packages already published are always skipped, so a release can safely run again.
 
-If the fix needs a code or workflow change, a re-run can't pick it up (it uses the tagged commit).
-Don't move the tag; bump to the next patch version and release that. Packages that missed the
-failed version skip it.
+- **Transient failure** (a registry outage): use **Re-run failed jobs**.
+- **Fix in the release workflow or scripts, package code unchanged:** a re-run uses the tagged
+  commit, so it can't pick up the fix. Commit the fix, move the tag to it and push the tag again
+  (`git tag -f vX.Y.Z && git push -f origin vX.Y.Z`); the release runs again and publishes only
+  what is missing. First confirm `git diff vX.Y.Z HEAD -- crates bindings adapters Cargo.toml Cargo.lock`
+  is empty.
+- **Fix in package code:** bump to the next patch version and release that.
