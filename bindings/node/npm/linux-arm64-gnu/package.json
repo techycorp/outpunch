@@ -1,6 +1,6 @@
 {
   "name": "outpunch-linux-arm64-gnu",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "cpu": [
     "arm64"
   ],
@@ -10,7 +10,7 @@
   ],
   "description": "Node.js bindings for the outpunch tunnel server",
   "license": "MIT",
-  "repository": "https://github.com/joenap/outpunch",
+  "repository": "https://github.com/techycorp/outpunch",
   "os": [
     "linux"
   ],

@@ -21,6 +21,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
 
+  release-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Every package has the same version
+        run: python scripts/version.py check
+      - name: Release workflow and scripts never suppress errors
+        run: |
+          pattern='continue-on-error|\|\|[[:space:]]*(true|:|echo|exit 0)|set \+e'
+          if grep -nE "$pattern" .github/workflows/release.yml .github/scripts/*.sh; then
+            echo "::error::error suppression found in the release path"; exit 1
+          elif [ $? -ne 1 ]; then
+            echo "::error::grep failed"; exit 1
+          fi
+      - name: Shellcheck release scripts
+        run: shellcheck .github/scripts/*.sh
+
   rust-lint:
     runs-on: ubuntu-latest
     steps:

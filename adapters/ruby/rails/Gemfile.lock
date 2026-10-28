@@ -1,21 +1,21 @@
 PATH
   remote: ../../../bindings/ruby
   specs:
-    outpunch-ruby (0.2.0)
+    outpunch-ruby (0.5.0)
       rb_sys (~> 0.9)
 
 PATH
   remote: ../rack
   specs:
-    outpunch-ruby-rack (0.2.0)
-      outpunch-ruby (~> 0.2)
+    outpunch-ruby-rack (0.5.0)
+      outpunch-ruby (= 0.5.0)
       websocket-driver (>= 0.7)
 
 PATH
   remote: .
   specs:
-    outpunch-ruby-rails (0.2.0)
-      outpunch-ruby-rack (= 0.2.0)
+    outpunch-ruby-rails (0.5.0)
+      outpunch-ruby-rack (= 0.5.0)
       railties (>= 7.0)
 
 GEM
@@ -231,7 +231,7 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  outpunch-ruby (~> 0.2.0)!
+  outpunch-ruby!
   outpunch-ruby-rack!
   outpunch-ruby-rails!
   rails (~> 7.0.0)

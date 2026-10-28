@@ -1,11 +1,11 @@
 {
   "name": "outpunch",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "Node.js bindings for the outpunch tunnel server",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
-  "repository": "https://github.com/joenap/outpunch",
+  "repository": "https://github.com/techycorp/outpunch",
   "files": [
     "index.js",
     "index.d.ts",
@@ -17,15 +17,13 @@
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu",
       "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
-      "x86_64-pc-windows-msvc"
+      "aarch64-apple-darwin"
     ]
   },
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "napi build --release",
     "build-debug": "napi build",
-    "prepublishOnly": "napi prepublish -t npm",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -35,13 +33,6 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.2",
     "vitest": "^4.1.0"
-  },
-  "optionalDependencies": {
-    "outpunch-darwin-arm64": "0.2.0",
-    "outpunch-darwin-x64": "0.2.0",
-    "outpunch-linux-arm64-gnu": "0.2.0",
-    "outpunch-linux-x64-gnu": "0.2.0",
-    "outpunch-win32-x64-msvc": "0.2.0"
   },
   "dependencies": {
     "ws": "^8.20.0"

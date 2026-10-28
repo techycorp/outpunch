@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name    = "outpunch-ruby"
-  spec.version = "0.2.0"
+  spec.version = "0.5.0"
   spec.authors = ["TechyCorp"]
   spec.summary = "Ruby bindings for the outpunch tunnel client"
   spec.license = "MIT"

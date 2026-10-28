@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.5.0
+
+Every package now shares one version, the release tag's. Versions between a package's last
+release and 0.5.0 were skipped.
+
+| Package | Registry | Version |
+|---|---|---|
+| `outpunch`, `outpunch-axum`, `outpunch-client` | crates.io | 0.5.0 |
+| `outpunch` | npm | 0.5.0 (first publish) |
+| `outpunch` | PyPI | 0.5.0 |
+| `outpunch-ruby`, `outpunch-ruby-rack`, `outpunch-ruby-rails` | RubyGems | 0.5.0 (first publish under these names) |
 
 ### Breaking changes
 
@@ -9,18 +19,23 @@
   account that owns the original names. We created those gems; they are orphaned at 0.1.x. Remove
   them before installing the new names, since both provide `require "outpunch"`. If we recover the
   account, we'll move back to the original names. `require` paths and module names are unchanged.
+- **Ruby: `outpunch-ruby-rack` requires `outpunch-ruby` at exactly its own version.**
 
 ### Changed
 
-- The Ruby gems are not supported on Windows. CI no longer runs the Ruby tests on Windows.
-- Release publish steps fail on any error except "this version is already published". Previously
-  every publish error was ignored.
+- **One version for every package.** `python scripts/version.py bump <version>` sets it everywhere;
+  the release fails if any package disagrees with the tag. See [docs/releasing.md](docs/releasing.md).
+- **Releases fail on any publish error.** Previously every publish error was ignored, so v0.4.0
+  reported success while npm and RubyGems publishes failed.
+- **Releases publish through trusted publishing** on crates.io, PyPI and RubyGems; no long-lived
+  registry tokens for those.
+- **Repository moved** to `github.com/techycorp/outpunch`; package metadata now points there.
+- The Ruby gems are not supported on Windows; CI no longer runs the Ruby tests on Windows.
 
 ### Release notes for v0.4.0
 
 The v0.4.0 release published only to crates.io and PyPI. The npm and RubyGems publishes failed
-and the release workflow ignored the errors. The Ruby gems will be published under the new names
-above, and npm in a later release.
+and the release workflow ignored the errors.
 
 ## v0.4.0
 

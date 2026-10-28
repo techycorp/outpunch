@@ -7,3 +7,12 @@ members = [
     "bindings/python",
     "bindings/node",
 ]
+
+[workspace.package]
+version = "0.5.0"
+repository = "https://github.com/techycorp/outpunch"
+homepage = "https://github.com/techycorp/outpunch"
+
+[workspace.dependencies]
+outpunch = { version = "0.5.0", path = "crates/outpunch" }
+outpunch-client = { version = "0.5.0", path = "crates/outpunch-client" }

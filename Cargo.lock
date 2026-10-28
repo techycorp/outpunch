@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch"
-version = "0.2.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-axum"
-version = "0.2.0"
+version = "0.5.0"
 dependencies = [
  "axum",
  "base64",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-client"
-version = "0.2.0"
+version = "0.5.0"
 dependencies = [
  "axum",
  "base64",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-node"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-python"
-version = "0.2.2"
+version = "0.5.0"
 dependencies = [
  "outpunch-client",
  "pyo3",

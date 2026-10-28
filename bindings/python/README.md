@@ -1,5 +1,5 @@
 # outpunch
 
-Python client bindings for [outpunch](https://github.com/joenap/outpunch), a reverse WebSocket tunnel proxy.
+Python client bindings for [outpunch](https://github.com/techycorp/outpunch), a reverse WebSocket tunnel proxy.
 
-See the [main repository](https://github.com/joenap/outpunch) for documentation.
+See the [main repository](https://github.com/techycorp/outpunch) for documentation.

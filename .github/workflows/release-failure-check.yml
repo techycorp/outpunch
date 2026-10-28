@@ -1,0 +1,147 @@
+name: Release failure check
+
+# Proves against the real registries that every publish command the release uses fails loudly:
+# each publish runs with credentials that must be rejected, and the job asserts the step failed.
+# OIDC attempts come from this workflow, which no registry trusts (they trust release.yml only).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-failure-check.yml"
+      - ".github/scripts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Registry status reads real registries
+        run: |
+          s=.github/scripts/registry-status.sh
+          test "$(bash $s crates outpunch 0.2.0)" = published
+          test "$(bash $s npm outpunch-darwin-arm64 0.1.0)" = published
+          test "$(bash $s rubygems outpunch-rack 0.1.2)" = published
+          test "$(bash $s pypi outpunch 0.2.2)" = published
+          test "$(bash $s crates outpunch 0.0.0-never)" = missing
+          test "$(bash $s npm outpunch 0.0.0-never)" = missing
+          test "$(bash $s rubygems outpunch-ruby 0.0.0.never)" = missing
+          test "$(bash $s pypi outpunch 0.0.0.dev999)" = missing
+      - name: Unknown registry fails
+        id: unknown
+        continue-on-error: true
+        run: bash .github/scripts/registry-status.sh nope outpunch 1.0.0
+      - name: Failing publish command fails
+        id: failing
+        continue-on-error: true
+        run: bash .github/scripts/publish-if-missing.sh crates outpunch 0.0.0-never sh -c 'exit 7'
+      - name: Already published version is skipped without running the command
+        run: bash .github/scripts/publish-if-missing.sh crates outpunch 0.2.0 sh -c 'echo "::error::ran"; exit 1'
+      - name: Assert
+        run: |
+          test "${{ steps.unknown.outcome }}" = failure
+          test "${{ steps.failing.outcome }}" = failure
+
+  crates:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Trusted publishing from an untrusted workflow
+        id: oidc
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@v1.0.5
+      - name: cargo publish with a rejected token
+        id: token
+        continue-on-error: true
+        run: cargo publish -p outpunch --no-verify
+        env:
+          CARGO_REGISTRY_TOKEN: rejected-token
+      - name: Assert
+        run: |
+          test "${{ steps.oidc.outcome }}" = failure
+          test "${{ steps.token.outcome }}" = failure
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: npm publish with a rejected token
+        id: token
+        continue-on-error: true
+        run: npm publish bindings/node/npm/linux-x64-gnu --access public
+        env:
+          NODE_AUTH_TOKEN: rejected-token
+      - name: Assert
+        run: test "${{ steps.token.outcome }}" = failure
+
+  rubygems:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: Trusted publishing from an untrusted workflow
+        id: oidc
+        continue-on-error: true
+        uses: rubygems/configure-rubygems-credentials@v2.1.0
+      - name: gem push with a rejected key
+        id: token
+        continue-on-error: true
+        working-directory: adapters/ruby/rack
+        run: |
+          gem build outpunch-ruby-rack.gemspec
+          gem push outpunch-ruby-rack-*.gem
+        env:
+          GEM_HOST_API_KEY: rejected-key
+      - name: Assert
+        run: |
+          test "${{ steps.oidc.outcome }}" = failure
+          test "${{ steps.token.outcome }}" = failure
+
+  pypi:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: bindings/python
+      - name: Upload with a rejected token
+        id: token
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: bindings/python/dist
+          password: rejected-token
+      - name: Trusted publishing from an untrusted workflow
+        id: oidc
+        continue-on-error: true
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: bindings/python/dist
+      - name: Assert
+        run: |
+          test "${{ steps.token.outcome }}" = failure
+          test "${{ steps.oidc.outcome }}" = failure

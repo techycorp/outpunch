@@ -2,20 +2,25 @@
 
 ## Published
 
-| Registry | Language | URL | Name |
-|----------|----------|-----|------|
-| npm | JS/TS | npmjs.com | outpunch |
-| PyPI | Python | pypi.org | outpunch |
-| crates.io | Rust | crates.io | outpunch |
+Every package is published at the same version on every release (see [releasing.md](releasing.md)).
+
+| Registry | Packages | Owner account | CI auth |
+|----------|----------|---------------|---------|
+| crates.io | `outpunch`, `outpunch-axum`, `outpunch-client` | TechyCorp (GitHub user TechyCorp-bot) | Trusted publishing (`release.yml`) |
+| PyPI | `outpunch` | `techycorp` | Trusted publishing (`release.yml`) |
+| RubyGems | `outpunch-ruby`, `outpunch-ruby-rack`, `outpunch-ruby-rails` | `techycorps` | Trusted publishing (`release.yml`) |
+| npm | `outpunch`, `outpunch-darwin-arm64`, `outpunch-darwin-x64`, `outpunch-linux-arm64-gnu`, `outpunch-linux-x64-gnu` | `techycorp` | `NPM_REGISTRY_TOKEN` secret, until npm trusted publishing is set up |
+
+The RubyGems names `outpunch`, `outpunch-rack` and `outpunch-rails` were ours but are orphaned at
+0.1.x under a RubyGems account we lost access to. If it is recovered, we move back to those names.
 
 ## Unclaimed
 
 | Registry | Language | URL | Name | Status |
 |----------|----------|-----|------|--------|
 | NuGet | C# / .NET | nuget.org | outpunch | unclaimed |
-| Maven Central | Java / Kotlin | central.sonatype.com | io.github.joenap.outpunch | unclaimed |
-| RubyGems | Ruby | rubygems.org | outpunch | unclaimed |
-| Go modules | Go | pkg.go.dev | github.com/joenap/outpunch | auto-claimed |
+| Maven Central | Java / Kotlin | central.sonatype.com | io.github.techycorp.outpunch | unclaimed |
+| Go modules | Go | pkg.go.dev | github.com/techycorp/outpunch | auto-claimed |
 | Hex | Elixir / Erlang | hex.pm | outpunch | unclaimed |
 | Packagist | PHP | packagist.org | outpunch/outpunch | unclaimed |
 | Swift Package Registry | Swift | swiftpackageindex.com | (auto-claimed by repo) | auto-claimed |

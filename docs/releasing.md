@@ -1,0 +1,74 @@
+# Releasing
+
+Every outpunch package, in every language, is published at the same version: the release tag's.
+A release publishes every package, even ones that did not change. When a package misses a
+release, it skips forward to the next shared version; versions are never back-filled.
+
+## Cutting a release
+
+1. Bump every package:
+
+   ```sh
+   python scripts/version.py bump 0.6.0
+   ```
+
+   This rewrites each version field and refreshes the lockfiles (Cargo, Bundler, npm, uv), then
+   runs the check below. It needs `cargo`, `bundle`, `npm` and `uv` on the PATH.
+
+2. Add a `## v0.6.0` section to `CHANGELOG.md`.
+
+3. Confirm, then commit and push:
+
+   ```sh
+   python scripts/version.py check 0.6.0
+   ```
+
+4. Wait for CI to pass on that commit, then tag and push the tag:
+
+   ```sh
+   git tag v0.6.0 && git push origin v0.6.0
+   ```
+
+## Where the version lives
+
+`scripts/version.py` owns the list. Most packages inherit the version rather than repeating it:
+
+| Package | Source of its version |
+|---|---|
+| Rust crates, Python binding, Node native crate | `[workspace.package] version` in the root `Cargo.toml` |
+| Python package (PyPI) | `dynamic = ["version"]`: maturin reads it from Cargo |
+| `outpunch-axum`, `outpunch-client` dependency on `outpunch` | `[workspace.dependencies]` in the root `Cargo.toml` |
+| Native Ruby gem's crate dependencies | `bindings/ruby/ext/outpunch/Cargo.toml` (outside the workspace) |
+| npm main and platform packages | `bindings/node/package.json`, `bindings/node/npm/*/package.json`, `bindings/node/index.js` |
+| npm optional dependencies on platform packages | Added by the release at publish time, not checked in |
+| Ruby gems | `outpunch-ruby.gemspec`, `rack/version.rb`, `rails/version.rb`; Rack and Rails pin their dependency to their own version |
+
+`python scripts/version.py check` (run in CI) fails if any of these disagree or cannot be found.
+
+## What the release workflow does
+
+On a `v*` tag, `.github/workflows/release.yml`:
+
+1. **verify-version:** fails unless every package and the changelog match the tag.
+2. **Publishes** to crates.io, PyPI, npm and RubyGems. crates.io, PyPI and RubyGems use trusted
+   publishing (short-lived OIDC tokens; no stored secrets). npm uses `NPM_REGISTRY_TOKEN` until
+   its trusted publishing is configured.
+3. **Creates the GitHub release** only if every publish succeeded.
+
+### Failures are never silent
+
+- Each publish runs through `.github/scripts/publish-if-missing.sh`. It asks the registry's API
+  whether that exact version exists: if it does, the publish is skipped with a warning (so a failed
+  release can be re-run); if not, the publish command runs and its exit status is the step's. Any
+  unexpected registry response fails the step.
+- PyPI is per file, so it uses the publish action's `skip-existing` instead.
+- CI fails if `release.yml` or `.github/scripts/` contain `continue-on-error`, `|| true`,
+  `|| echo`, `|| :`, `|| exit 0` or `set +e`.
+- `.github/workflows/release-failure-check.yml` runs every publish command against the real
+  registries with credentials that must be rejected, and fails unless each one fails. It runs
+  whenever the release workflow or its scripts change, and on demand.
+
+### Re-running a failed release
+
+Use **Re-run failed jobs** on the release run. Packages already published are skipped; the rest
+are published. Do not move or re-create the tag.
