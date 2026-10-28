@@ -39,7 +39,7 @@ jobs:
             echo "::error::grep failed"; exit 1
           fi
       - name: Shellcheck release scripts
-        run: shellcheck .github/scripts/*.sh
+        run: shellcheck .github/scripts/*.sh bindings/node/scripts/*.sh
 
   rust-lint:
     runs-on: ubuntu-latest
@@ -122,4 +122,9 @@ jobs:
         run: |
           npm ci
           npx napi build --platform
+          npm run build:js
           npx vitest run
+      - name: Installed package loads through require and import
+        if: runner.os != 'Windows'
+        working-directory: bindings/node
+        run: bash scripts/package-smoke-test.sh

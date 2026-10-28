@@ -21,6 +21,13 @@ release and 0.5.0 were skipped.
   account, we'll move back to the original names. `require` paths and module names are unchanged.
 - **Ruby: `outpunch-ruby-rack` requires `outpunch-ruby` at exactly its own version.**
 
+### Fixed
+
+- **npm: `import { outpunch } from "outpunch/vite"` works.** The package now ships compiled
+  JavaScript with an `exports` map for `outpunch` and `outpunch/vite`; it previously shipped raw
+  TypeScript with no `outpunch/vite` entry point. The release installs the packed package into an
+  empty project and loads both entry points through `require` and `import` before publishing.
+
 ### Changed
 
 - **One version for every package.** `python scripts/version.py bump <version>` sets it everywhere;

@@ -238,6 +238,12 @@ jobs:
           for dir in npm/*/; do
             if ! ls "$dir"*.node >/dev/null 2>&1; then echo "::error::no .node binary in $dir"; exit 1; fi
           done
+      - name: Compile the JavaScript entry points
+        working-directory: bindings/node
+        run: npm run build:js
+      - name: Installed package loads through require and import
+        working-directory: bindings/node
+        run: bash scripts/package-smoke-test.sh npm/linux-x64-gnu
       - name: Pin the platform packages as optional dependencies
         working-directory: bindings/node
         run: |

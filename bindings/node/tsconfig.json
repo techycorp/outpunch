@@ -1,12 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "strict": true,
+    "rootDir": "js",
     "outDir": "dist",
     "declaration": true,
     "skipLibCheck": true
   },
-  "include": ["js/**/*.ts"]
+  "include": [
+    "js/**/*.ts"
+  ]
 }

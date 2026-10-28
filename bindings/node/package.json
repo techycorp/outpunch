@@ -2,14 +2,25 @@
   "name": "outpunch",
   "version": "0.5.0",
   "description": "Node.js bindings for the outpunch tunnel server",
-  "main": "index.js",
-  "types": "index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
   "repository": "https://github.com/techycorp/outpunch",
   "files": [
     "index.js",
     "index.d.ts",
-    "js/"
+    "dist/"
   ],
   "napi": {
     "binaryName": "outpunch",
@@ -24,6 +35,7 @@
     "artifacts": "napi artifacts",
     "build": "napi build --release",
     "build-debug": "napi build",
+    "build:js": "tsc",
     "test": "vitest run"
   },
   "devDependencies": {
