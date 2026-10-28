@@ -23,7 +23,14 @@ release, it skips forward to the next shared version; versions are never back-fi
    python scripts/version.py check 0.6.0
    ```
 
-4. Wait for CI to pass on that commit, then tag and push the tag:
+4. Wait for CI to pass on that commit, then run a dry run of the release on it. Every build runs
+   (all wheels and native binaries); nothing is published:
+
+   ```sh
+   gh workflow run release.yml --ref master
+   ```
+
+5. When the dry run passes, tag and push the tag:
 
    ```sh
    git tag v0.6.0 && git push origin v0.6.0
@@ -50,10 +57,14 @@ release, it skips forward to the next shared version; versions are never back-fi
 On a `v*` tag, `.github/workflows/release.yml`:
 
 1. **verify-version:** fails unless every package and the changelog match the tag.
-2. **Publishes** to crates.io, PyPI, npm and RubyGems. crates.io, PyPI and RubyGems use trusted
+2. **Builds** every artifact. Nothing publishes until all builds succeed, so a failed build can't
+   leave a release half-published.
+3. **Publishes** to crates.io, PyPI, npm and RubyGems. crates.io, PyPI and RubyGems use trusted
    publishing (short-lived OIDC tokens; no stored secrets). npm uses `NPM_REGISTRY_TOKEN` until
    its trusted publishing is configured.
-3. **Creates the GitHub release** only if every publish succeeded.
+4. **verify-published:** waits (up to 20 minutes) until every package is served at the new version
+   by its registry. A publish command can succeed before the registry serves it.
+5. **Creates the GitHub release** only if every package is live.
 
 ### Failures are never silent
 
@@ -70,5 +81,9 @@ On a `v*` tag, `.github/workflows/release.yml`:
 
 ### Re-running a failed release
 
-Use **Re-run failed jobs** on the release run. Packages already published are skipped; the rest
-are published. Do not move or re-create the tag.
+If the failure is transient (a registry outage), use **Re-run failed jobs**: packages already
+published are skipped, the rest are published.
+
+If the fix needs a code or workflow change, a re-run can't pick it up (it uses the tagged commit).
+Don't move the tag; bump to the next patch version and release that. Packages that missed the
+failed version skip it.

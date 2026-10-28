@@ -7,6 +7,8 @@ on:
   push:
     tags:
       - "v*"
+  # Dry run: every build runs, nothing is published. Run it on master before tagging.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,17 +23,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Check every package matches the tag
+      - name: Check every package matches the tag (or, on a dry run, the workspace version)
         id: version
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          fi
           python scripts/version.py check "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  all-builds:
+    name: All builds succeeded
+    runs-on: ubuntu-latest
+    needs: [pypi-linux, pypi-macos, pypi-windows, pypi-sdist, npm-build]
+    steps:
+      - run: echo "every artifact built; publishing can start"
 
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [verify-version]
+    if: github.event_name == 'push'
+    needs: [verify-version, all-builds]
     permissions:
       contents: read
       id-token: write
@@ -113,9 +127,15 @@ jobs:
     needs: [verify-version]
     steps:
       - uses: actions/checkout@v4
+      # Building for Windows needs every target interpreter installed.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: |
+            3.10
+            3.11
+            3.12
+            3.13
+            3.14
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -148,7 +168,8 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [verify-version, pypi-linux, pypi-macos, pypi-windows, pypi-sdist]
+    if: github.event_name == 'push'
+    needs: [verify-version, all-builds]
     permissions:
       id-token: write
     env:
@@ -211,7 +232,8 @@ jobs:
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
-    needs: [verify-version, npm-build]
+    if: github.event_name == 'push'
+    needs: [verify-version, all-builds]
     env:
       VERSION: ${{ needs.verify-version.outputs.version }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
@@ -269,6 +291,7 @@ jobs:
   publish-rubygems:
     name: Publish to RubyGems
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     # The native gem compiles against the outpunch crates from crates.io at install time.
     needs: [verify-version, publish-crates]
     permissions:
@@ -304,11 +327,20 @@ jobs:
           gem build outpunch-ruby-rails.gemspec
           bash ../../../.github/scripts/publish-if-missing.sh rubygems outpunch-ruby-rails "$VERSION" gem push "outpunch-ruby-rails-$VERSION.gem"
 
+  verify-published:
+    name: Every package is live on its registry
+    runs-on: ubuntu-latest
+    needs: [verify-version, publish-crates, publish-pypi, publish-npm, publish-rubygems]
+    steps:
+      - uses: actions/checkout@v4
+      # A registry can accept a publish and take minutes to serve it (npm took ~5 for v0.5.0).
+      - run: bash .github/scripts/wait-until-published.sh "${{ needs.verify-version.outputs.version }}" 1200
+
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    # Runs only when every publish succeeded.
-    needs: [publish-crates, publish-pypi, publish-npm, publish-rubygems]
+    # Runs only when every package is live.
+    needs: [verify-published]
     permissions:
       contents: write
     steps:
