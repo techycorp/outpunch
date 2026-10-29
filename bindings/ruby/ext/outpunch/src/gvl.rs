@@ -30,38 +30,43 @@ unsafe extern "C" fn unblock(data: *mut c_void) {
 }
 
 /// Run `func` with the GVL released. `func` receives a `Notify` that fires when Ruby
-/// interrupts the thread (Thread#kill, Thread#raise, Timeout); it returns `None` when
-/// it stopped early because of that.
+/// interrupts the thread (Thread#raise, Thread#kill, Timeout, Thread#wakeup, signals); it
+/// returns `None` when it stopped early because of that.
 ///
-/// Returns `Ok(None)` when the call was cancelled and Ruby had no exception pending.
-pub fn without_gvl<F, R>(ruby: &Ruby, func: F) -> Result<Option<R>, Error>
+/// `rb_thread_call_without_gvl2` does not call `func` at all while an interrupt is pending,
+/// and the VM timer makes one pending whenever threads compete for the GVL. So when `func` did
+/// not run, the interrupt is handled and `func` is called again.
+///
+/// Returns `Err` when Ruby has an exception to raise, `Ok(None)` when `func` was cancelled by an
+/// interrupt that raised nothing (the caller decides whether to try again), `Ok(Some)` otherwise.
+pub fn without_gvl<F, R>(ruby: &Ruby, mut func: F) -> Result<Option<R>, Error>
 where
-    F: FnOnce(Arc<Notify>) -> Option<R>,
+    F: FnMut(Arc<Notify>) -> Option<R>,
 {
-    let cancel = Arc::new(Notify::new());
-    let mut state = Call {
-        func: Some({
-            let cancel = cancel.clone();
-            move || func(cancel)
-        }),
-        result: None,
-    };
+    loop {
+        let cancel = Arc::new(Notify::new());
+        let mut state = Call {
+            func: Some(|| func(cancel.clone())),
+            result: None,
+        };
 
-    unsafe {
-        rb_sys::rb_thread_call_without_gvl2(
-            Some(trampoline(&state)),
-            &mut state as *mut _ as *mut c_void,
-            Some(unblock),
-            Arc::as_ptr(&cancel) as *mut c_void,
-        );
-    }
-
-    match state.result {
-        Some(Ok(Some(value))) => Ok(Some(value)),
-        Some(Ok(None)) | None => {
-            ruby.thread_check_ints()?;
-            Ok(None)
+        unsafe {
+            rb_sys::rb_thread_call_without_gvl2(
+                Some(trampoline(&state)),
+                &mut state as *mut _ as *mut c_void,
+                Some(unblock),
+                Arc::as_ptr(&cancel) as *mut c_void,
+            );
         }
-        Some(Err(payload)) => panic::resume_unwind(payload),
+
+        match state.result {
+            Some(Ok(Some(value))) => return Ok(Some(value)),
+            Some(Ok(None)) => {
+                ruby.thread_check_ints()?;
+                return Ok(None);
+            }
+            Some(Err(payload)) => panic::resume_unwind(payload),
+            None => ruby.thread_check_ints()?,
+        }
     }
 }

@@ -1,6 +1,6 @@
 {
   "name": "outpunch",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Node.js bindings for the outpunch tunnel server",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::panic;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use outpunch_core::server::{
 };
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::{JoinError, JoinHandle};
 
 use crate::gvl::without_gvl;
 
@@ -21,6 +23,35 @@ fn runtime() -> &'static Runtime {
             .build()
             .expect("failed to start outpunch runtime")
     })
+}
+
+/// Wait for a task on the runtime with the GVL released. An interrupt that raises nothing
+/// (Thread#wakeup, the VM timer) keeps waiting; one that raises returns `Err` and leaves the
+/// task running for the caller to stop.
+fn wait_for<T>(ruby: &Ruby, task: &mut JoinHandle<T>) -> Result<T, Error> {
+    loop {
+        let joined = without_gvl(ruby, |cancel| {
+            runtime().block_on(async {
+                tokio::select! {
+                    joined = &mut *task => Some(joined),
+                    _ = cancel.notified() => None,
+                }
+            })
+        })?;
+        if let Some(joined) = joined {
+            return joined.map_err(|err| task_failed(ruby, err));
+        }
+    }
+}
+
+fn task_failed(ruby: &Ruby, err: JoinError) -> Error {
+    if err.is_panic() {
+        panic::resume_unwind(err.into_panic());
+    }
+    Error::new(
+        ruby.exception_runtime_error(),
+        format!("outpunch task failed: {err}"),
+    )
 }
 
 fn outpunch_error(ruby: &Ruby, name: &str) -> Result<ExceptionClass, Error> {
@@ -61,12 +92,10 @@ impl Server {
 
     fn is_connected(ruby: &Ruby, rb_self: &Self, service: String) -> Result<bool, Error> {
         loop {
-            let server = rb_self.inner.clone();
-            let service = service.clone();
-            let result = without_gvl(ruby, move |cancel| {
+            let result = without_gvl(ruby, |cancel| {
                 runtime().block_on(async {
                     tokio::select! {
-                        connected = server.is_connected(&service) => Some(connected),
+                        connected = rb_self.inner.is_connected(&service) => Some(connected),
                         _ = cancel.notified() => None,
                     }
                 })
@@ -102,30 +131,20 @@ impl Server {
         };
 
         let server = rb_self.inner.clone();
-        let result = without_gvl(ruby, move |cancel| {
-            runtime().block_on(async {
-                tokio::select! {
-                    result = server.try_handle_request(incoming) => Some(result),
-                    _ = cancel.notified() => None,
-                }
-            })
-        })?;
+        let mut task = runtime().spawn(async move { server.try_handle_request(incoming).await });
+        let result = wait_for(ruby, &mut task).inspect_err(|_| task.abort())?;
 
         match result {
-            None => Err(Error::new(
-                ruby.exception_runtime_error(),
-                "tunnel request interrupted",
-            )),
-            Some(Ok(response)) => response_hash(ruby, response),
-            Some(Err(TunnelError::NotConnected)) => Err(Error::new(
+            Ok(response) => response_hash(ruby, response),
+            Err(TunnelError::NotConnected) => Err(Error::new(
                 outpunch_error(ruby, "NotConnectedError")?,
                 format!("Service '{service}' not connected"),
             )),
-            Some(Err(TunnelError::Timeout)) => Err(Error::new(
+            Err(TunnelError::Timeout) => Err(Error::new(
                 outpunch_error(ruby, "TunnelTimeoutError")?,
                 format!("Tunnel timeout for service '{service}'"),
             )),
-            Some(Err(err)) => Err(Error::new(
+            Err(err) => Err(Error::new(
                 outpunch_error(ruby, "TunnelError")?,
                 err.to_string(),
             )),
@@ -150,18 +169,23 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Feed one WebSocket text message from the tunnel client into the core.
+    /// Feed one WebSocket text message from the tunnel client into the core. Blocks while the
+    /// core's queue is full.
     fn push_message(ruby: &Ruby, rb_self: &Self, text: String) -> Result<(), Error> {
-        let inner = rb_self.inner.clone();
-        without_gvl(ruby, move |cancel| {
-            runtime().block_on(async {
-                tokio::select! {
-                    _ = inner.push_message(text) => Some(()),
-                    _ = cancel.notified() => None,
-                }
-            })
-        })?;
-        Ok(())
+        // A cancelled send delivered nothing, so send again until it lands or Ruby raises.
+        loop {
+            let sent = without_gvl(ruby, |cancel| {
+                runtime().block_on(async {
+                    tokio::select! {
+                        _ = rb_self.inner.push_message(text.clone()) => Some(()),
+                        _ = cancel.notified() => None,
+                    }
+                })
+            })?;
+            if sent.is_some() {
+                return Ok(());
+            }
+        }
     }
 
     /// Block until the core has a message for the tunnel client. Returns nil once the
@@ -187,25 +211,16 @@ impl Connection {
         self.inner.close();
     }
 
-    /// Run the connection lifecycle (auth, relay, cleanup). Blocks until the
-    /// connection ends; an interrupt closes the connection.
+    /// Run the connection lifecycle (auth, relay, cleanup). Blocks until the connection ends.
+    /// An exception raised into this thread (Thread#raise, Thread#kill, Timeout) closes the
+    /// connection and then propagates.
     fn run(ruby: &Ruby, rb_self: &Self) -> Result<(), Error> {
         let inner = rb_self.inner.clone();
-        without_gvl(ruby, move |cancel| {
-            runtime().block_on(async {
-                let run = inner.run();
-                tokio::pin!(run);
-                tokio::select! {
-                    _ = &mut run => {}
-                    _ = cancel.notified() => {
-                        inner.close();
-                        run.await;
-                    }
-                }
-                Some(())
-            })
-        })?;
-        Ok(())
+        let mut task = runtime().spawn(async move { inner.run().await });
+        wait_for(ruby, &mut task).inspect_err(|_| {
+            rb_self.inner.close();
+            let _ = runtime().block_on(task);
+        })
     }
 }
 

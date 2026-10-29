@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.2
+
+### Fixed
+
+- **Ruby: the native gem no longer drops messages, skips calls or closes connections when a
+  thread is interrupted without an exception.** Ruby's `rb_thread_call_without_gvl2` does not run
+  the native function at all while an interrupt is pending, and the VM timer makes one pending
+  whenever threads compete for the GVL (routine in a multi-threaded Puma server). The gem treated
+  that as a completed call, so `push_message` could silently drop a client's message (including
+  its `auth`, leaving the client without `auth_ok`), `run` could return without running the
+  connection, and `handle_request` could fail with `tunnel request interrupted`. `Thread#wakeup`
+  also closed a running connection and failed waiting requests. Calls now retry until they run;
+  only an exception (`Thread#raise`, `Thread#kill`, `Timeout`) stops them. This was the
+  intermittent `auth_ok` failure in the Rack specs on Linux (8 of 25 suite runs in a 2-CPU Linux
+  container before the fix, 0 of 25 after).
+
 ## v0.5.1
 
 No package changes. npm now publishes through trusted publishing, like crates.io, PyPI and
