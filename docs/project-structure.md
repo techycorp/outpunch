@@ -57,11 +57,12 @@ Each binding has two layers:
 |----------|----------|----------------|--------------|
 | Python | PyO3 + pyo3-async-runtimes | Rust async fn → Python awaitable | Maturin → PyPI |
 | Node.js | Napi-RS | Rust async fn → JS Promise | @napi-rs/cli → npm |
-| Ruby | Magnus + rb-sys | Manual reactor pattern (GVL release + channel) | rake-compiler → RubyGems |
+| Ruby | Magnus + rb-sys | Manual reactor pattern (GVL release + channel) | rb-sys (compiled on install) → RubyGems |
 
 ### Build and release
 
-Each language has its own CI workflow, test suite (in that language), and release process. They are independent — a Python release does not require changes to Node or Ruby.
+Each language has its own test suite (in that language), but every package is released together
+at one shared version from a single workflow. See [releasing.md](releasing.md).
 
 The Rust workspace builds everything together (`cargo build`, `cargo test`), but language-specific builds are handled by their respective toolchains (Maturin, @napi-rs/cli, rake-compiler).
 

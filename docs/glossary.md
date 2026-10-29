@@ -14,7 +14,7 @@ A thin translation layer between a web framework and the core. The adapter handl
 
 The core never touches a WebSocket type. The adapter bridges the WebSocket I/O to the core's channels. This is what makes outpunch multi-language — any language's WebSocket library can feed messages into the same channel interface.
 
-Each adapter is small and specific to one framework. Examples: `outpunch-axum` (Rust/axum), `outpunch-rack` (Ruby), `outpunch-asgi` (Python), `outpunch-express` (Node.js).
+Each adapter is small and specific to one framework. Examples: `outpunch-axum` (Rust/axum), `outpunch-ruby-rack` (Ruby), `outpunch-asgi` (Python), `outpunch-express` (Node.js).
 
 ## Tunnel Client
 

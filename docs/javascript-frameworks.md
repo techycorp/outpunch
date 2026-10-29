@@ -60,9 +60,11 @@ Napi-RS keeps one implementation. The cost is cross-platform CI builds (automate
 
 ## Platform Builds
 
-Napi-RS publishes precompiled binaries as platform-specific npm packages (e.g., `@outpunch/darwin-arm64`, `@outpunch/linux-x64-gnu`). The main `outpunch` package lists these as `optionalDependencies` — npm automatically installs only the one matching the user's OS and architecture.
+Napi-RS publishes precompiled binaries as platform-specific npm packages: `outpunch-darwin-arm64`, `outpunch-darwin-x64`, `outpunch-linux-arm64-gnu` and `outpunch-linux-x64-gnu`. The published `outpunch` package lists them as `optionalDependencies`, so npm installs only the one matching the user's OS and architecture. The release adds those pins at publish time; they are not in the checked-in `package.json`, because the platform packages for an unreleased version don't exist yet.
 
-Cross-compilation for ~15 targets is handled by GitHub Actions workflows scaffolded by `@napi-rs/cli`. This is the same approach used by SWC, Rspack, Rolldown, and Lightning CSS.
+The release workflow builds the four targets on native runners. This is the same approach used by SWC, Rspack, Rolldown, and Lightning CSS.
+
+The package's public entry points are `outpunch` (the native binding plus `createOutpunchMiddleware`) and `outpunch/vite` (the Vite plugin), compiled from `js/*.ts` to CommonJS in `dist/`. Before publishing, the release installs the packed package into an empty project and loads both entry points through `require` and `import` (`bindings/node/scripts/package-smoke-test.sh`).
 
 ## Compatibility
 

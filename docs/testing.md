@@ -19,7 +19,7 @@ Examples:
 
 The test harness spins up a real server (using whichever adapter is under test), a real client, and a real local HTTP service. The tests don't know or care which adapter is running — they make HTTP requests and assert on responses.
 
-When someone writes a new adapter (`outpunch-actix`, `outpunch-rack`, `outpunch-asgi`), they plug it into this same suite. If it passes, the adapter is conformant. If a test fails for one adapter but not another, it's caught a subtle framework difference.
+When someone writes a new adapter (`outpunch-actix`, `outpunch-ruby-rack`, `outpunch-asgi`), they plug it into this same suite. If it passes, the adapter is conformant. If a test fails for one adapter but not another, it's caught a subtle framework difference.
 
 This suite is the living spec. It is the most important layer.
 

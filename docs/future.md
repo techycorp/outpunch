@@ -32,7 +32,7 @@ Client bindings use per-language FFI tools (not UniFFI — its Node.js support i
 
 Server-side adapters for other languages are written natively in each language:
 
-- Ruby: `outpunch-rack` (Rails, Sinatra)
+- Ruby: `outpunch-ruby-rack` (Rack, Sinatra) and `outpunch-ruby-rails` — shipped, running on the Rust core via the native `outpunch-ruby` gem
 - Python: `outpunch-asgi` (Django, FastAPI), `outpunch-wsgi` (Flask)
 - Node.js: `outpunch-express`, `outpunch-hono`
 

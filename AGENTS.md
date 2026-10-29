@@ -23,6 +23,12 @@ The source file links to the test file at the bottom:
 mod tests;
 ```
 
+### Versions
+
+Every package in every language shares one version. Never edit a version by hand: run
+`python scripts/version.py bump <version>`, which updates every package and lockfile; CI runs
+`python scripts/version.py check`. See [docs/releasing.md](docs/releasing.md).
+
 ### Dependencies
 
 Always use the package manager (`cargo add`, `cargo remove`, `uv add`, `npm install`) to manage dependencies. Never hand-edit dependency sections in manifest files.

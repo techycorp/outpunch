@@ -16,6 +16,18 @@ The core is a framework-agnostic Rust library — no web framework or WebSocket 
 
 > **Ruby gem names:** install `outpunch-ruby`, `outpunch-ruby-rack` and `outpunch-ruby-rails`. Due to a clerical error we lost access to the RubyGems account that owns the original `outpunch`, `outpunch-rack` and `outpunch-rails` gems. We created those gems, and they are now orphaned at 0.1.x and will not get updates. If you have them installed, remove them before installing the new names, since both provide `require "outpunch"`. If we recover the account, we'll move back to the original names. `require` paths and module names are unchanged.
 
+## Install
+
+| Language | Package | Install |
+|---|---|---|
+| Rust | server adapter, client | `cargo add outpunch-axum` / `cargo add outpunch-client` |
+| Python | client | `pip install outpunch` |
+| Node.js | server (Vite, Node http) | `npm install outpunch` |
+| Ruby | Rack / Rails server adapter | `bundle add outpunch-ruby-rack` / `bundle add outpunch-ruby-rails` |
+
+Every package shares one version. The Ruby gems compile a Rust extension on install, so they need
+a Rust toolchain (`cargo`).
+
 ## Quick Start
 
 ### Server (Vite)
@@ -70,6 +82,8 @@ just test-all     # run all test suites (Rust + Python + Node.js)
 just coverage     # Rust test coverage
 just lint         # rustfmt + clippy
 ```
+
+Releasing: see [docs/releasing.md](docs/releasing.md).
 
 ## License
 
