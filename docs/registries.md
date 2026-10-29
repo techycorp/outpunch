@@ -9,7 +9,7 @@ Every package is published at the same version on every release (see [releasing.
 | crates.io | `outpunch`, `outpunch-axum`, `outpunch-client` | TechyCorp (GitHub user TechyCorp-bot) | Trusted publishing (`release.yml`) |
 | PyPI | `outpunch` | `techycorp` | Trusted publishing (`release.yml`) |
 | RubyGems | `outpunch-ruby`, `outpunch-ruby-rack`, `outpunch-ruby-rails` | `techycorps` | Trusted publishing (`release.yml`) |
-| npm | `outpunch`, `outpunch-darwin-arm64`, `outpunch-darwin-x64`, `outpunch-linux-arm64-gnu`, `outpunch-linux-x64-gnu` | `techycorp` | `NPM_REGISTRY_TOKEN` secret, until npm trusted publishing is set up |
+| npm | `outpunch`, `outpunch-darwin-arm64`, `outpunch-darwin-x64`, `outpunch-linux-arm64-gnu`, `outpunch-linux-x64-gnu` | `techycorp` | Trusted publishing (`release.yml`) |
 
 The RubyGems names `outpunch`, `outpunch-rack` and `outpunch-rails` were ours but are orphaned at
 0.1.x under a RubyGems account we lost access to. If it is recovered, we move back to those names.

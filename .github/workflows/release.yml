@@ -245,15 +245,20 @@ jobs:
     timeout-minutes: 20
     if: github.event_name == 'push'
     needs: [verify-version, all-builds]
+    permissions:
+      contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.verify-version.outputs.version }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      # npm trusted publishing (OIDC) needs npm 11.5.1 or newer; Node 22 bundles npm 10.
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@11.21.0
       - name: Install dependencies
         working-directory: bindings/node
         run: npm ci --ignore-scripts

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.1
+
+No package changes. npm now publishes through trusted publishing, like crates.io, PyPI and
+RubyGems; this release is the first npm publish to use it.
+
 ## v0.5.0
 
 Every package now shares one version, the release tag's. Versions between a package's last

@@ -60,9 +60,8 @@ On a `v*` tag, `.github/workflows/release.yml`:
 1. **verify-version:** fails unless every package and the changelog match the tag.
 2. **Builds** every artifact. Nothing publishes until all builds succeed, so a failed build can't
    leave a release half-published.
-3. **Publishes** to crates.io, PyPI, npm and RubyGems. crates.io, PyPI and RubyGems use trusted
-   publishing (short-lived OIDC tokens; no stored secrets). npm uses `NPM_REGISTRY_TOKEN` until
-   its trusted publishing is configured.
+3. **Publishes** to crates.io, PyPI, npm and RubyGems, all through trusted publishing
+   (short-lived OIDC tokens; no stored secrets).
 4. **verify-published:** waits (up to 20 minutes) until every package is served at the new version
    by its registry. A publish command can succeed before the registry serves it.
 5. **Creates the GitHub release** only if every package is live.
