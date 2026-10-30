@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "rack/version"
+require_relative "hook_halt"
 require_relative "rack/hooks"
 require_relative "rack/server"
 require_relative "rack/connection"
