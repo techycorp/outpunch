@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    outpunch-ruby (0.5.2)
+    outpunch-ruby (0.5.3)
       rb_sys (~> 0.9)
 
 GEM

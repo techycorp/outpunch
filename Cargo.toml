@@ -9,10 +9,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 repository = "https://github.com/techycorp/outpunch"
 homepage = "https://github.com/techycorp/outpunch"
 
 [workspace.dependencies]
-outpunch = { version = "0.5.2", path = "crates/outpunch" }
-outpunch-client = { version = "0.5.2", path = "crates/outpunch-client" }
+outpunch = { version = "0.5.3", path = "crates/outpunch" }
+outpunch-client = { version = "0.5.3", path = "crates/outpunch-client" }

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.3
+
+### Added
+
+- **Ruby: a `before_proxy` hook can stop a request with `Outpunch::HookHalt`.** Raise
+  `Outpunch::HookHalt.new(status, body)` from the hook and the tunnel answers with that status
+  and JSON body without forwarding anything to the service (for example a 402 when a user may
+  not use it). Any other error a hook raises still answers 502, as before.
+
 ## v0.5.2
 
 ### Fixed
