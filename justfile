@@ -17,8 +17,14 @@ test-axum:
 test-client:
 	cargo test -p outpunch-client
 
-check:
+check: vendor-claims
 	cargo check
+
+vendor-claims:
+	uv run --script ~/.claude/skills/verify-vendor-claims/scripts/check_vendor_claims.py
+
+test-vendor:
+	cargo test -p outpunch-client --test vendor_rustls -- --ignored
 
 fmt:
 	cargo fmt

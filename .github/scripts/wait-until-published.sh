@@ -14,6 +14,7 @@ packages=(
   "pypi outpunch"
   "npm outpunch"
   "rubygems outpunch-ruby"
+  "rubygems:x86_64-linux outpunch-ruby"
   "rubygems outpunch-ruby-rack"
   "rubygems outpunch-ruby-rails"
 )

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.4
+
+### Added
+
+- **Ruby: `outpunch-ruby` ships precompiled for `x86_64-linux`** (Ruby 3.1 to 4.0), so installing it
+  there needs no Rust toolchain. Bundler projects need `bundle lock --add-platform x86_64-linux`.
+  Other platforms still compile from the source gem.
+
+### Changed
+
+- **The client uses rustls instead of OpenSSL on every platform and binding.** Certificates are
+  still verified against the system trust store, so custom and corporate CAs keep working. TLS 1.0
+  and 1.1 servers are refused, and TLS error messages have changed.
+
 ## v0.5.3
 
 ### Added

@@ -33,6 +33,17 @@ Every package in every language shares one version. Never edit a version by hand
 
 Always use the package manager (`cargo add`, `cargo remove`, `uv add`, `npm install`) to manage dependencies. Never hand-edit dependency sections in manifest files.
 
+### TLS
+
+All Rust code uses rustls. `native-tls` and OpenSSL stay out of the Linux dependency tree, so prebuilt packages don't depend on the OpenSSL of the machine they land on.
+
+- Pass the crypto provider explicitly when building a TLS config. Never rely on or install the process-wide rustls default: the client runs inside other people's host processes.
+- Verify certificates with `rustls-platform-verifier` (system roots), not bundled roots, so custom and corporate CAs keep working.
+- TLS 1.0 and 1.1 endpoints are unsupported.
+- TLS fixes reach users only through our releases: a TLS advisory means a new release of every package.
+
+CI fails if `openssl`, `openssl-sys` or `native-tls` appears in a lockfile.
+
 ## Documentation
 
 - [docs/product.md](docs/product.md) — Product overview, deployment modes, protocol spec, authentication model, integration strategy

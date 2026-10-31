@@ -5,8 +5,10 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use futures_util::{SinkExt, StreamExt};
 use outpunch::protocol::{self, AuthMessage, Message, TunnelRequest, TunnelResponse};
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::connect_async_tls_with_config;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+mod tls;
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -48,7 +50,9 @@ pub async fn run_connection(
     config: &ClientConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     eprintln!("connecting to {}...", config.server_url);
-    let (ws_stream, _) = connect_async(&config.server_url).await?;
+    let (ws_stream, _) =
+        connect_async_tls_with_config(&config.server_url, None, false, Some(tls::connector()?))
+            .await?;
     let (mut ws_sink, mut ws_stream) = ws_stream.split();
 
     authenticate(&mut ws_sink, &mut ws_stream, config).await?;

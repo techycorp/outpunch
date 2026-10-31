@@ -28,9 +28,11 @@ jobs:
           test "$(bash $s npm outpunch-darwin-arm64 0.1.0)" = published
           test "$(bash $s rubygems outpunch-rack 0.1.2)" = published
           test "$(bash $s pypi outpunch 0.2.2)" = published
+          test "$(bash $s rubygems:x86_64-linux-gnu nokogiri 1.18.0)" = published
           test "$(bash $s crates outpunch 0.0.0-never)" = missing
           test "$(bash $s npm outpunch 0.0.0-never)" = missing
           test "$(bash $s rubygems outpunch-ruby 0.0.0.never)" = missing
+          test "$(bash $s rubygems:sparc-nope nokogiri 1.18.0)" = missing
           test "$(bash $s pypi outpunch 0.0.0.dev999)" = missing
       - name: Unknown registry fails
         id: unknown

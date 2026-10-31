@@ -2,3 +2,5 @@ target/
 tmp/
 lib/outpunch/*.bundle
 *.gem
+
+pkg/

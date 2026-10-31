@@ -1,0 +1,40 @@
+# Files matching these globs are fakes and must be listed below.
+fake_globs = ["crates/*/tests/fakes/*.rs"]
+# Ceiling on unverified claims; it only goes down.
+max_unverified = 0
+
+[[fake]]
+path = "crates/outpunch-client/tests/fakes/tls_server.rs"
+vendor = "public-tls-endpoints"
+
+[[fake.claim]]
+behaviour = "a certificate from an untrusted root fails the handshake as an invalid peer certificate"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_reject_an_untrusted_root"
+
+[[fake.claim]]
+behaviour = "a self-signed certificate fails the handshake as an invalid peer certificate"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_reject_a_self_signed_certificate"
+
+[[fake.claim]]
+behaviour = "an expired certificate fails the handshake as an invalid peer certificate"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_reject_an_expired_certificate"
+
+[[fake.claim]]
+behaviour = "a certificate for another host fails the handshake as an invalid peer certificate"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_reject_a_certificate_for_another_host"
+
+[[fake.claim]]
+behaviour = "a public CA chain validates through system roots"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_accept_a_public_ca_chain_through_system_roots"
+
+[[fake.claim]]
+behaviour = "a TLS 1.2 only server is accepted"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_accept_a_tls_1_2_only_server"
+
+[[fake.claim]]
+behaviour = "a TLS 1.0 only server ends the handshake with a TLS alert"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_refuse_a_tls_1_0_only_server"
+
+[[fake.claim]]
+behaviour = "a TLS 1.1 only server ends the handshake with a TLS alert"
+verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_refuse_a_tls_1_1_only_server"
