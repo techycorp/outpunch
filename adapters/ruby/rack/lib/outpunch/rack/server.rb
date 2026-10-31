@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "outpunch/outpunch"
+require "outpunch"
 require "base64"
 require "json"
 

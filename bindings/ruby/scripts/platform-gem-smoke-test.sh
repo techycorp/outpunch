@@ -10,6 +10,7 @@ ruby_url=https://heroku-buildpack-ruby.s3.us-east-1.amazonaws.com/heroku-24/amd6
 
 docker run --rm --platform linux/amd64 --user root \
   --volume "$gem_file:/smoke/$(basename "$gem_file"):ro" \
+  --volume "$(cd "$(dirname "$0")" && pwd)/connect-check.rb:/smoke-connect-check.rb:ro" \
   --env GEM_FILE="/smoke/$(basename "$gem_file")" \
   --env RUBY_URL="$ruby_url" \
   "$image" bash -euo pipefail -c '
@@ -35,22 +36,5 @@ docker run --rm --platform linux/amd64 --user root \
     bundle lock --local --add-platform x86_64-linux
     grep -q "outpunch-ruby (.*-x86_64-linux)" Gemfile.lock
 
-    bundle exec ruby -e "
-      require \"outpunch\"
-
-      def connection_error(url)
-        Outpunch.run_connection(Outpunch::ClientConfig.new(url, \"secret\", \"smoke\", nil, nil, nil))
-        abort \"#{url}: connection unexpectedly completed\"
-      rescue RuntimeError => e
-        e.message
-      end
-
-      trusted = connection_error(\"wss://sha256.badssl.com/\")
-      abort \"public CA chain failed: #{trusted}\" unless trusted.start_with?(\"HTTP error\")
-
-      untrusted = connection_error(\"wss://untrusted-root.badssl.com/\")
-      abort \"untrusted root not rejected: #{untrusted}\" unless untrusted.include?(\"invalid peer certificate\")
-
-      puts \"smoke test passed on Ruby #{RUBY_VERSION}\"
-    "
+    bundle exec ruby /smoke-connect-check.rb
   '
