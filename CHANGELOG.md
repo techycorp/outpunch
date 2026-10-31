@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.5
+
+### Fixed
+
+- **Ruby: `outpunch-ruby` is installable on every platform again.** 0.5.4 published only the
+  `x86_64-linux` gem, because the release's registry check took that gem as proof the source gem
+  existed too. On macOS and arm64 Linux, `outpunch-ruby` 0.5.4 and the Rack and Rails gems that pin
+  it can't be installed; use 0.5.5.
+
 ## v0.5.4
 
 ### Added
