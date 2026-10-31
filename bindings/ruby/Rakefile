@@ -1,6 +1,9 @@
 require "rb_sys/extensiontask"
+require "rubygems/package_task"
 
 GEMSPEC = Gem::Specification.load("outpunch-ruby.gemspec")
+
+Gem::PackageTask.new(GEMSPEC) { }
 
 RbSys::ExtensionTask.new("outpunch", GEMSPEC) do |ext|
   ext.lib_dir = "lib/outpunch"

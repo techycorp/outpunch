@@ -59,7 +59,8 @@ On a `v*` tag, `.github/workflows/release.yml`:
 
 1. **verify-version:** fails unless every package and the changelog match the tag.
 2. **Builds** every artifact. Nothing publishes until all builds succeed, so a failed build can't
-   leave a release half-published.
+   leave a release half-published. The `x86_64-linux` Ruby gem is also installed and exercised, once
+   per Ruby it ships for, in a container matching the Heroku stack with no compiler present.
 3. **Publishes** to crates.io, PyPI, npm and RubyGems, all through trusted publishing
    (short-lived OIDC tokens; no stored secrets).
 4. **verify-published:** waits (up to 20 minutes) until every package is served at the new version
@@ -73,6 +74,8 @@ On a `v*` tag, `.github/workflows/release.yml`:
   release can be re-run); if not, the publish command runs and its exit status is the step's. Any
   unexpected registry response fails the step.
 - PyPI is per file, so it uses the publish action's `skip-existing` instead.
+- RubyGems versions are per platform: `rubygems:x86_64-linux` checks the precompiled gem on its
+  own, so a re-run can publish it and the source gem independently.
 - Every release job has a `timeout-minutes`, so a hung build or registry call fails the release
   within minutes instead of stalling it for GitHub's 6-hour default.
 - CI fails if `release.yml` or `.github/scripts/` contain `continue-on-error`, `|| true`,

@@ -25,8 +25,9 @@ The core is a framework-agnostic Rust library — no web framework or WebSocket 
 | Node.js | server (Vite, Node http) | `npm install outpunch` |
 | Ruby | Rack / Rails server adapter | `bundle add outpunch-ruby-rack` / `bundle add outpunch-ruby-rails` |
 
-Every package shares one version. The Ruby gems compile a Rust extension on install, so they need
-a Rust toolchain (`cargo`).
+Every package shares one version. `outpunch-ruby` ships precompiled for `x86_64-linux` (Ruby 3.1 to
+4.0). On any other platform it compiles a Rust extension on install, so it needs a Rust toolchain
+(`cargo`).
 
 ## Quick Start
 

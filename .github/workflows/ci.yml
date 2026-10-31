@@ -39,7 +39,9 @@ jobs:
             echo "::error::grep failed"; exit 1
           fi
       - name: Shellcheck release scripts
-        run: shellcheck .github/scripts/*.sh bindings/node/scripts/*.sh
+        run: shellcheck .github/scripts/*.sh bindings/node/scripts/*.sh bindings/ruby/scripts/*.sh
+      - name: No OpenSSL in the dependency tree
+        run: bash .github/scripts/check-no-openssl.sh Cargo.lock bindings/ruby/Cargo.lock
 
   rust-lint:
     runs-on: ubuntu-latest
@@ -104,6 +106,18 @@ jobs:
         run: |
           bundle install
           bundle exec rspec
+
+  ruby-platform-gem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: Build
+        run: bash bindings/ruby/scripts/build-platform-gem.sh 3.3
+      - name: Smoke test
+        run: bash bindings/ruby/scripts/platform-gem-smoke-test.sh bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem 3.3.5
 
   node-test:
     runs-on: ${{ matrix.os }}
