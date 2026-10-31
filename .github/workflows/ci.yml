@@ -118,6 +118,28 @@ jobs:
         run: bash bindings/ruby/scripts/build-platform-gem.sh 3.3
       - name: Smoke test
         run: bash bindings/ruby/scripts/platform-gem-smoke-test.sh bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem 3.3.5
+      - name: Boot the Rack and Rails adapters
+        run: |
+          (cd adapters/ruby/rack && gem build outpunch-ruby-rack.gemspec)
+          (cd adapters/ruby/rails && gem build outpunch-ruby-rails.gemspec)
+          mkdir adapter-smoke
+          cp bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem adapters/ruby/rack/*.gem adapters/ruby/rails/*.gem adapter-smoke/
+          bash bindings/ruby/scripts/platform-gem-adapters-smoke-test.sh adapter-smoke 3.3
+
+  ruby-source-gem:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oxidize-rb/actions/setup-ruby-and-rust@v1.5.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+          cargo-cache: false
+      - run: bash bindings/ruby/scripts/source-gem-smoke-test.sh
 
   node-test:
     runs-on: ${{ matrix.os }}

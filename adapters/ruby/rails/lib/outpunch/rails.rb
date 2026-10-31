@@ -9,7 +9,7 @@ require "outpunch/rails/engine"
 # Usage in config/initializers/outpunch.rb:
 #
 #   OutpunchRails.configure do |config|
-#     config.secret  = ENV['MORDOR_TUNNEL_SECRET']
+#     config.secret  = ENV['OUTPUNCH_TUNNEL_SECRET']
 #     config.timeout = 60
 #   end
 #

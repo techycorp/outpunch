@@ -2,12 +2,13 @@
 
 Gem::Specification.new do |spec|
   spec.name    = "outpunch-ruby"
-  spec.version = "0.5.4"
+  spec.version = "0.5.5"
   spec.authors = ["TechyCorp"]
   spec.summary = "Ruby bindings for the outpunch tunnel client"
   spec.license = "MIT"
+  spec.homepage = "https://github.com/techycorp/outpunch"
 
-  spec.files         = Dir["lib/**/*.rb", "ext/**/*"]
+  spec.files         = Dir["lib/**/*.rb", "ext/**/*"] + ["Cargo.toml", "Cargo.lock"]
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/outpunch/extconf.rb"]
 

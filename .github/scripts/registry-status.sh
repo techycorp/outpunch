@@ -8,7 +8,8 @@ registry=$1 name=$2 version=$3
 case "$registry" in
   crates)   url="https://crates.io/api/v1/crates/$name/$version" ;;
   npm)      url="https://registry.npmjs.org/$name/$version" ;;
-  rubygems) url="https://rubygems.org/api/v2/rubygems/$name/versions/$version.json" ;;
+  # Without a platform, RubyGems answers 200 if any platform of the version exists.
+  rubygems) url="https://rubygems.org/api/v2/rubygems/$name/versions/$version.json?platform=ruby" ;;
   rubygems:*) url="https://rubygems.org/api/v2/rubygems/$name/versions/$version.json?platform=${registry#rubygems:}" ;;
   pypi)     url="https://pypi.org/pypi/$name/$version/json" ;;
   *)        echo "unknown registry: $registry" >&2; exit 2 ;;

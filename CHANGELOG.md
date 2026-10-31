@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.5.5
+
+### Fixed
+
+- **Ruby: `outpunch-ruby` is installable on every platform again.** 0.5.4 published only the
+  `x86_64-linux` gem, because the release's registry check took that gem as proof the source gem
+  existed too. On macOS and arm64 Linux, `outpunch-ruby` 0.5.4 and the Rack and Rails gems that pin
+  it can't be installed; use 0.5.5.
+- **Ruby: the Rack and Rails adapters load with the precompiled gem.** On `x86_64-linux`, 0.5.4's
+  adapters failed at boot with `cannot load such file -- outpunch/outpunch`.
+
+### Changed
+
+- **The `outpunch-ruby` source gem ships its `Cargo.lock`,** so a compile on install uses the
+  dependency versions we tested.
+- **npm Linux binaries need glibc 2.17** instead of 2.34, so they load on older distributions.
+- **README:** Node.js is listed as a server adapter only; the npm package has no tunnel client.
+- **Package metadata:** the Ruby gems have a homepage, and the Python package has a license and
+  project URLs.
+
 ## v0.5.4
 
 ### Added

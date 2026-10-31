@@ -39,7 +39,7 @@ jobs:
     name: All builds succeeded
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [pypi-linux, pypi-macos, pypi-windows, pypi-sdist, npm-build, ruby-platform-gem]
+    needs: [pypi-linux, pypi-macos, pypi-windows, pypi-sdist, npm-build, ruby-platform-gem, ruby-source-gem]
     steps:
       - run: echo "every artifact built; publishing can start"
 
@@ -213,8 +213,10 @@ jobs:
         settings:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
+            napi_args: --use-napi-cross
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
+            napi_args: --use-napi-cross
           - target: x86_64-apple-darwin
             runner: macos-latest
           - target: aarch64-apple-darwin
@@ -232,7 +234,11 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Build native module
         working-directory: bindings/node
-        run: npx napi build --platform --release --target ${{ matrix.settings.target }}
+        run: npx napi build --platform --release --target ${{ matrix.settings.target }} ${{ matrix.settings.napi_args }}
+      - name: Linux binaries stay on an old glibc
+        if: matrix.settings.napi_args
+        working-directory: bindings/node
+        run: bash ../../.github/scripts/check-glibc-floor.sh outpunch.*.node 2.17
       - uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.settings.target }}
@@ -321,11 +327,39 @@ jobs:
           for ruby in 3.1.7 3.2.9 3.3.5 3.4.8 4.0.0; do
             bash bindings/ruby/scripts/platform-gem-smoke-test.sh bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem "$ruby"
           done
+      - name: Build the Rack and Rails gems for the adapter smoke test
+        run: |
+          (cd adapters/ruby/rack && gem build outpunch-ruby-rack.gemspec)
+          (cd adapters/ruby/rails && gem build outpunch-ruby-rails.gemspec)
+          mkdir adapter-smoke
+          cp bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem adapters/ruby/rack/*.gem adapters/ruby/rails/*.gem adapter-smoke/
+      - name: Boot the Rack and Rails adapters on every Ruby in the gem
+        run: |
+          for ruby in 3.1 3.2 3.3 3.4 4.0; do
+            bash bindings/ruby/scripts/platform-gem-adapters-smoke-test.sh adapter-smoke "$ruby"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ruby-platform-gem
           path: bindings/ruby/pkg/outpunch-ruby-*-x86_64-linux.gem
           if-no-files-found: error
+
+  ruby-source-gem:
+    name: Install and smoke test the source gem
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: [verify-version]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oxidize-rb/actions/setup-ruby-and-rust@v1.5.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+          cargo-cache: false
+      - run: bash bindings/ruby/scripts/source-gem-smoke-test.sh
 
   publish-rubygems:
     name: Publish to RubyGems
@@ -344,6 +378,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+      - uses: dtolnay/rust-toolchain@stable
       - uses: rubygems/configure-rubygems-credentials@v2.1.0
       - uses: actions/download-artifact@v4
         with:
@@ -355,12 +390,9 @@ jobs:
       - name: Build and publish outpunch-ruby (native gem)
         working-directory: bindings/ruby
         run: |
-          # The gem compiles on install, outside this repo: drop the local path
-          # dependencies so the outpunch crates resolve from crates.io by version.
-          sed -i -E 's/, path = "[^"]*"//' ext/outpunch/Cargo.toml
-          if grep -q 'path = ' ext/outpunch/Cargo.toml; then
-            echo "::error::path dependency left in ext/outpunch/Cargo.toml" && exit 1
-          fi
+          bash scripts/prepare-source-gem.sh .
+          # Record the published crates in the Cargo.lock the gem ships.
+          cargo fetch
           gem build outpunch-ruby.gemspec
           bash ../../.github/scripts/publish-if-missing.sh rubygems outpunch-ruby "$VERSION" gem push "outpunch-ruby-$VERSION.gem"
       - name: Build and publish outpunch-ruby-rack

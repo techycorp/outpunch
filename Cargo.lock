@@ -1231,7 +1231,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "outpunch"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-axum"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-client"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-node"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "napi",
  "napi-build",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch-python"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "outpunch-client",
  "pyo3",

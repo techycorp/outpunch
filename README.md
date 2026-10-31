@@ -10,7 +10,7 @@ The core is a framework-agnostic Rust library — no web framework or WebSocket 
 
 **Server adapters** — axum, Vite, Express, Fastify, Rack, Rails
 
-**Client bindings** — Rust, Python, Node.js, Ruby
+**Client bindings** — Rust, Python, Ruby
 
 > **Windows:** the Ruby gems are not supported on Windows yet. Other packages are tested on Windows.
 

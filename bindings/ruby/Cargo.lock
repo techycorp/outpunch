@@ -1016,7 +1016,7 @@ name = "outpunch"
 version = "0.1.0"
 dependencies = [
  "magnus",
- "outpunch 0.5.4",
+ "outpunch 0.5.5",
  "outpunch-client",
  "rb-sys",
  "rb-sys-build",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "outpunch"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1035,12 +1035,12 @@ dependencies = [
 
 [[package]]
 name = "outpunch-client"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "base64",
  "clap",
  "futures-util",
- "outpunch 0.5.4",
+ "outpunch 0.5.5",
  "reqwest",
  "rustls",
  "rustls-platform-verifier",

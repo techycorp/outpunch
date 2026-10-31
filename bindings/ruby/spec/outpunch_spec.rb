@@ -37,7 +37,7 @@ RSpec.describe Outpunch::ClientConfig do
       config = Outpunch::ClientConfig.new(
         "wss://example.com/ws",
         "secret",
-        "stormsnap",
+        "my-service",
         "http://localhost:8081",
         10.0,
         30.0
@@ -77,12 +77,12 @@ RSpec.describe Outpunch::ClientConfig do
   describe "#inspect" do
     it "includes server_url, service, and forward_to" do
       config = Outpunch::ClientConfig.new(
-        "wss://example.com/ws", "secret", "stormsnap",
+        "wss://example.com/ws", "secret", "my-service",
         "http://localhost:8081", nil, nil
       )
       str = config.inspect
       expect(str).to include("wss://example.com/ws")
-      expect(str).to include("stormsnap")
+      expect(str).to include("my-service")
       expect(str).to include("http://localhost:8081")
     end
 

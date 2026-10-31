@@ -1,14 +1,14 @@
 PATH
   remote: ../../../bindings/ruby
   specs:
-    outpunch-ruby (0.5.4)
+    outpunch-ruby (0.5.5)
       rb_sys (~> 0.9)
 
 PATH
   remote: .
   specs:
-    outpunch-ruby-rack (0.5.4)
-      outpunch-ruby (= 0.5.4)
+    outpunch-ruby-rack (0.5.5)
+      outpunch-ruby (= 0.5.5)
       websocket-driver (>= 0.7)
 
 GEM
