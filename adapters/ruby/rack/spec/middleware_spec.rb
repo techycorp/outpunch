@@ -2,50 +2,52 @@
 
 require "spec_helper"
 require "rack/mock"
+require "rack/lint"
+require "socket"
 
 RSpec.describe Outpunch::Rack::Middleware do
   let(:inner_app) { ->(_env) { [200, {}, ["ok"]] } }
   let(:server)    { instance_double(Outpunch::Rack::Server) }
   let(:middleware) { described_class.new(inner_app, server: server) }
 
-  def ws_env(path = "/ws")
-    ::Rack::MockRequest.env_for(path).merge(
-      "HTTP_UPGRADE"    => "websocket",
-      "HTTP_CONNECTION" => "Upgrade",
-      "rack.hijack"     => -> { },
-      "rack.hijack_io"  => StringIO.new
-    )
+  # A connection double whose #run reports what it was given, from the middleware's thread.
+  def connection_receiving_run
+    conn = instance_double(Outpunch::Rack::Connection)
+    allow(server).to receive(:create_connection).and_return(conn)
+    runs = Queue.new
+    allow(conn).to receive(:run) { |*args| runs.push(args) }
+    [conn, runs]
   end
 
   describe "#call" do
     context "with a WebSocket upgrade request to /ws" do
-      it "hijacks the connection and returns -1" do
-        conn = instance_double(Outpunch::Rack::Connection)
-        allow(server).to receive(:create_connection).and_return(conn)
-        started = Queue.new
-        allow(conn).to receive(:run) { started.push(:started) }
-
-        env = ws_env
+      it "hijacks the connection" do
+        _conn, runs = connection_receiving_run
         hijacked = false
-        env["rack.hijack"] = -> { hijacked = true }
 
-        status, = middleware.call(env)
-        started.pop
+        middleware.call(websocket_upgrade_env(on_hijack: -> { hijacked = true }))
+        runs.pop
 
         expect(hijacked).to be true
-        expect(status).to eq(-1)
       end
 
-      it "spawns a thread that calls run on the connection" do
-        conn = instance_double(Outpunch::Rack::Connection)
-        allow(server).to receive(:create_connection).and_return(conn)
-        started = Queue.new
-        allow(conn).to receive(:run) { started.push(:started) }
+      # The server ignores the response after a full hijack, but Rack 3 still requires a valid one.
+      it "answers with a response Rack 3 accepts" do
+        _conn, runs = connection_receiving_run
+        socket, _peer = UNIXSocket.pair
 
-        middleware.call(ws_env)
-        started.pop
+        expect { ::Rack::Lint.new(middleware).call(websocket_upgrade_env(socket: socket)) }.not_to raise_error
+        runs.pop
+      end
 
-        expect(conn).to have_received(:run)
+      it "runs the connection on the socket the hijack returned" do
+        _conn, runs = connection_receiving_run
+        socket = StringIO.new
+        env = websocket_upgrade_env(socket: socket)
+
+        middleware.call(env)
+
+        expect(runs.pop).to eq([env, socket])
       end
     end
 
@@ -61,8 +63,7 @@ RSpec.describe Outpunch::Rack::Middleware do
 
     context "with a WebSocket request to a different path" do
       it "passes through to the inner app" do
-        env = ws_env("/other-ws")
-        status, _, body = middleware.call(env)
+        status, _, body = middleware.call(websocket_upgrade_env("/other-ws"))
 
         expect(status).to eq(200)
         expect(body).to eq(["ok"])

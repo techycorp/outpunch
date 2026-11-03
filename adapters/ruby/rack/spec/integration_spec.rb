@@ -24,6 +24,23 @@ RSpec.describe "integration: full tunnel round-trip", :integration, :tunnel do
     expect(result["body"]).to eq("hello from tunnel")
   end
 
+  context "on a server that sets no rack.hijack_io (Rack 3)" do
+    let!(:port) { start_tunnel_server(server_instance, without_hijack_io: true) }
+
+    it "authenticates and proxies a tunnel request" do
+      client = authed_client(port, service: "test-service", token: "integration-secret")
+      caller = request_thread(server_instance, "test-service", path: "api/hello")
+
+      request = client.next_message
+      client.respond(request, status: 200, body: "hello from tunnel")
+      result = caller.value
+      client.close
+
+      expect(result["status"]).to eq(200)
+      expect(result["body"]).to eq("hello from tunnel")
+    end
+  end
+
   it "returns 502 when no client connected" do
     expect {
       server_instance.handle_request(service: "offline-service", method: "GET", path: "test",

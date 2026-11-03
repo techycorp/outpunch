@@ -1,5 +1,5 @@
 # Files matching these globs are fakes and must be listed below.
-fake_globs = ["crates/*/tests/fakes/*.rs"]
+fake_globs = ["crates/*/tests/fakes/*.rs", "adapters/ruby/*/spec/support/fakes/*.rb"]
 # Ceiling on unverified claims; it only goes down.
 max_unverified = 0
 
@@ -38,3 +38,15 @@ verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_refuse
 [[fake.claim]]
 behaviour = "a TLS 1.1 only server ends the handshake with a TLS alert"
 verified_by = "crates/outpunch-client/tests/vendor_rustls.rs::rustls_must_refuse_a_tls_1_1_only_server"
+
+[[fake]]
+path = "adapters/ruby/rack/spec/support/fakes/rack_hijack.rb"
+vendor = "puma"
+
+[[fake.claim]]
+behaviour = "a full hijack returns the client's socket"
+verified_by = "adapters/ruby/rack/spec/vendor/puma_hijack_spec.rb::returns the client's socket from a full hijack"
+
+[[fake.claim]]
+behaviour = "after a full hijack the server writes nothing of its own, whatever the app returns"
+verified_by = "adapters/ruby/rack/spec/vendor/puma_hijack_spec.rb::writes nothing of its own to a fully hijacked socket, whatever the app returns"

@@ -10,6 +10,8 @@ RSpec.configure do |config|
     mocks.verify_partial_doubles = true
   end
   config.shared_context_metadata_behavior = :apply_to_host_groups
+  # Vendor specs check facts about real third-party systems: `just test-vendor`.
+  config.filter_run_excluding :vendor unless config.inclusion_filter[:vendor]
 end
 
 Dir[File.join(__dir__, "support", "**", "*.rb")].each { |f| require f }

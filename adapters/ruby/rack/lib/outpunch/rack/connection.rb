@@ -16,10 +16,10 @@ module Outpunch
         @env = nil
       end
 
-      # Hijack the socket and run the WebSocket loop. Blocks until disconnected.
-      def run(env)
+      # Run the WebSocket loop on the hijacked socket. Blocks until disconnected.
+      def run(env, io)
         @env = env
-        @io = env.fetch("rack.hijack_io")
+        @io = io
         @driver = WebSocket::Driver.rack(self)
         @driver.on(:message) { |event| @native.push_message(event.data) }
         @driver.on(:close)   { @native.close }

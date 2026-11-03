@@ -7,5 +7,9 @@ dev:
 test:
     bundle exec rspec
 
+# facts about real third-party systems (Puma), excluded from `test`
+test-vendor:
+    bundle exec rspec --tag vendor
+
 test-verbose:
     bundle exec rspec --format documentation

@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Ruby: the Rack adapter follows Rack 3's full hijack.** It runs the tunnel on the socket that
+  `rack.hijack` returns instead of reading `rack.hijack_io`, which Rack 3 dropped from the spec;
+  on a server that doesn't set it, every tunnel connection failed with `KeyError`. It worked on
+  Puma only because Puma still sets the old key.
+- **Ruby: the Rack adapter answers a hijacked upgrade with a valid response,** `200` instead of
+  `-1`, which `Rack::Lint` rejects. The server ignores it either way.
+
+### Changed
+
+- **Ruby: `Outpunch::Rack::Connection#run` takes the hijacked socket:** `run(env, io)`.
+- **The Rack adapter's specs run on Puma 8**, and vendor specs check on a real Puma the two facts
+  about full hijack it relies on (`just test-vendor`). The Rails adapter's specs also pass on
+  Rails 8.1 and Rack 3.2, though CI still runs them on Rails 7.0.
+
 ## v0.5.5
 
 ### Fixed

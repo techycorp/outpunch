@@ -12,10 +12,12 @@ module Outpunch
 
       def call(env)
         if env["PATH_INFO"] == WS_PATH && websocket_upgrade?(env)
-          env["rack.hijack"].call
+          # Rack 3: a full hijack returns the client socket; rack.hijack_io is gone from the spec.
+          socket = env["rack.hijack"].call
           conn = (@server || Outpunch::Rack.server).create_connection
-          Thread.new { conn.run(env) }
-          [-1, {}, []]
+          Thread.new { conn.run(env, socket) }
+          # The server ignores the response after a full hijack; Rack 3 still requires a valid one.
+          [200, {}, []]
         else
           @app.call(env)
         end

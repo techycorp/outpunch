@@ -25,6 +25,7 @@ vendor-claims:
 
 test-vendor:
 	cargo test -p outpunch-client --test vendor_rustls -- --ignored
+	cd adapters/ruby/rack && bundle exec rspec --tag vendor
 
 fmt:
 	cargo fmt

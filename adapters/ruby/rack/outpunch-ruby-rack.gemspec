@@ -20,6 +20,6 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "rspec", "~> 3.12"
   spec.add_development_dependency "rack", "~> 3.0"
-  spec.add_development_dependency "puma", "~> 6.0"
+  spec.add_development_dependency "puma", "~> 8.0"
   spec.add_development_dependency "websocket-client-simple", "~> 0.6"
 end

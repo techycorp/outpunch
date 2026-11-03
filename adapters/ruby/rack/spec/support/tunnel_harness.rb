@@ -58,8 +58,28 @@ module TunnelHarness
     end
   end
 
-  def start_tunnel_server(server)
+  # Leaves no `rack.hijack_io` in the env, as a Rack 3 server that doesn't set it would: the
+  # hijack still returns the socket. Puma sets the key inside the hijack call, so it is removed
+  # after the call, not before.
+  class WithoutHijackIo
+    def initialize(app)
+      @app = app
+    end
+
+    def call(env)
+      hijack = env["rack.hijack"]
+      env["rack.hijack"] = lambda do
+        socket = hijack.call
+        env.delete("rack.hijack_io")
+        socket
+      end
+      @app.call(env)
+    end
+  end
+
+  def start_tunnel_server(server, without_hijack_io: false)
     app = ::Rack::Builder.new do
+      use WithoutHijackIo if without_hijack_io
       use Outpunch::Rack::Middleware, server: server
       run ->(_env) { [200, {}, ["inner app"]] }
     end.to_app
