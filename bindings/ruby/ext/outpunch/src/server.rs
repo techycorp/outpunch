@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::panic;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use magnus::{Error, ExceptionClass, RHash, RModule, RString, Ruby, prelude::*, wrap};
 use outpunch_core::protocol::{IncomingRequest, TunnelResponse};
@@ -81,12 +81,22 @@ impl Server {
     fn create_connection(&self) -> Connection {
         let inner = self.inner.create_connection();
         let (tx, rx) = mpsc::unbounded_channel();
+        let stall = Arc::new(StallCheck::new(self.inner.request_timeout()));
+        let weak = inner.downgrade();
+        let check = stall.clone();
         inner.on_message(move |msg| {
+            if check.enqueued()
+                && let Some(connection) = weak.upgrade()
+            {
+                connection.close();
+            }
             let _ = tx.send(msg);
         });
         Connection {
             inner,
+            server: self.inner.clone(),
             outgoing: Mutex::new(rx),
+            stall,
         }
     }
 
@@ -162,10 +172,56 @@ fn response_hash(ruby: &Ruby, response: TunnelResponse) -> Result<RHash, Error> 
     Ok(hash)
 }
 
+/// Detects a consumer that stopped calling `next_outgoing`: the message at the front of the
+/// queue has waited longer than the request timeout. The binding does not own the socket, so
+/// this stands in for the adapters' socket write timeout (F7 in spec/FINDINGS.md). Checked when
+/// a message is queued, which is when a stalled consumer would make memory grow.
+struct StallCheck {
+    limit: Duration,
+    state: std::sync::Mutex<StallState>,
+}
+
+struct StallState {
+    queued: usize,
+    head_since: Instant,
+}
+
+impl StallCheck {
+    fn new(limit: Duration) -> Self {
+        Self {
+            limit,
+            state: std::sync::Mutex::new(StallState {
+                queued: 0,
+                head_since: Instant::now(),
+            }),
+        }
+    }
+
+    /// Records a queued message; returns true if the consumer has stalled.
+    fn enqueued(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let stalled = state.queued > 0 && state.head_since.elapsed() > self.limit;
+        if state.queued == 0 {
+            state.head_since = Instant::now();
+        }
+        state.queued += 1;
+        stalled
+    }
+
+    /// Records a message taken off the queue; the next one starts waiting now.
+    fn taken(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.queued = state.queued.saturating_sub(1);
+        state.head_since = Instant::now();
+    }
+}
+
 #[wrap(class = "Outpunch::Connection", free_immediately, size)]
 pub struct Connection {
     inner: CoreConnection,
+    server: OutpunchServer,
     outgoing: Mutex<mpsc::UnboundedReceiver<String>>,
+    stall: Arc<StallCheck>,
 }
 
 impl Connection {
@@ -189,14 +245,28 @@ impl Connection {
     }
 
     /// Block until the core has a message for the tunnel client. Returns nil once the
-    /// connection has ended.
+    /// connection has ended. Skips requests whose caller has already been answered.
     fn next_outgoing(ruby: &Ruby, rb_self: &Self) -> Result<Option<String>, Error> {
         loop {
             let result = without_gvl(ruby, |cancel| {
                 runtime().block_on(async {
-                    let mut outgoing = rb_self.outgoing.lock().await;
+                    // The lock is taken inside the select!, so an interrupt also stops a
+                    // thread still waiting for it (F2 in spec/FINDINGS.md).
+                    let next_pending = async {
+                        let mut outgoing = rb_self.outgoing.lock().await;
+                        loop {
+                            let msg = outgoing.recv().await;
+                            if msg.is_some() {
+                                rb_self.stall.taken();
+                            }
+                            match msg {
+                                Some(msg) if !rb_self.server.is_pending(&msg) => continue,
+                                msg => break msg,
+                            }
+                        }
+                    };
                     tokio::select! {
-                        msg = outgoing.recv() => Some(msg),
+                        msg = next_pending => Some(msg),
                         _ = cancel.notified() => None,
                     }
                 })

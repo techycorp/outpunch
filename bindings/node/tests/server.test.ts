@@ -600,6 +600,58 @@ test('slow-reading client does not lose requests', async () => {
   ws.close();
 }, 10000);
 
+// F5 in spec/FINDINGS.md. The client keeps reading, slowly: each write finishes well within the
+// request timeout (so F7's write timeout never fires), but requests queued behind the others time
+// out before their turn.
+test('timed-out requests must not be delivered to a client that reads slowly', async () => {
+  const requests = 200;
+  const port = await startServer({ secret: 's', timeoutMs: 500 });
+  const ws = await connectAndAuth(port, 's', 'svc');
+
+  let received = 0;
+  ws.on('message', (data) => {
+    if (JSON.parse(data.toString()).type === 'request') received++;
+    ws.pause();
+    setTimeout(() => ws.resume(), 25);
+  });
+
+  const body = 'x'.repeat(256 * 1024);
+  const statuses = await Promise.all(
+    Array.from({ length: requests }, () =>
+      fetch(`http://127.0.0.1:${port}/tunnel/svc/upload`, { method: 'POST', body }).then((r) => r.status),
+    ),
+  );
+  expect(statuses.every((s) => s === 504)).toBe(true);
+  await new Promise((r) => setTimeout(r, 2000));
+
+  // Requests written before their timeout still arrive: about 20 in 500 ms at this pace, plus what
+  // the socket buffers hold. Without the check, all 200 arrive.
+  expect(received).toBeLessThanOrEqual(requests / 4);
+  ws.close();
+}, 15000);
+
+// F7 in spec/FINDINGS.md.
+test('client that stops reading must be disconnected after a write waits past the timeout', async () => {
+  const port = await startServer({ secret: 's', timeoutMs: 500 });
+  const ws = await connectAndAuth(port, 's', 'svc');
+  ws.pause();
+
+  const body = 'x'.repeat(256 * 1024);
+  const statuses = await Promise.all(
+    Array.from({ length: 200 }, () =>
+      fetch(`http://127.0.0.1:${port}/tunnel/svc/upload`, { method: 'POST', body }).then((r) => r.status),
+    ),
+  );
+  expect(statuses.every((s) => s === 504 || s === 502)).toBe(true);
+  await new Promise((r) => setTimeout(r, 1000));
+
+  const started = Date.now();
+  const res = await fetch(`http://127.0.0.1:${port}/tunnel/svc/x`);
+  expect(res.status).toBe(502);
+  expect(Date.now() - started).toBeLessThan(400);
+  ws.terminate();
+}, 15000);
+
 test('server closes the socket of a replaced connection', async () => {
   const port = await startServer({ secret: 's', timeoutMs: 5000 });
   const oldWs = await connectAndAuth(port, 's', 'svc');

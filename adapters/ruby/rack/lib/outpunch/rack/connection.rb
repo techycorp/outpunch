@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "io/wait"
 require "websocket/driver"
 
 module Outpunch
@@ -8,8 +9,9 @@ module Outpunch
     # Ruby handles socket I/O and WebSocket framing; the core handles auth,
     # routing and request state.
     class Connection
-      def initialize(native)
+      def initialize(native, write_timeout: nil)
         @native = native
+        @write_timeout = write_timeout
         @write_mutex = Mutex.new
         @io = nil
         @driver = nil
@@ -41,9 +43,14 @@ module Outpunch
         close_io
       end
 
-      # Called by websocket-driver to write raw bytes to the socket.
+      # Called by websocket-driver to write raw bytes to the socket. A write that cannot
+      # finish within the write timeout (the client stopped reading) closes the connection,
+      # so the service is unregistered instead of queueing requests for it (F7 in
+      # spec/FINDINGS.md).
       def write(data)
-        @io.write(data)
+        return @io.write(data) unless @write_timeout && @io.respond_to?(:write_nonblock)
+
+        write_within(data, monotonic_now + @write_timeout) || stop_stalled
       rescue IOError, Errno::EPIPE, Errno::ECONNRESET
         nil
       end
@@ -69,6 +76,31 @@ module Outpunch
         end
         @write_mutex.synchronize { @driver.close }
         close_io
+      end
+
+      # Writes all of data unless the deadline passes first; returns false if it does.
+      def write_within(data, deadline)
+        until data.empty?
+          written = @io.write_nonblock(data, exception: false)
+          if written == :wait_writable
+            remaining = deadline - monotonic_now
+            return false unless remaining.positive? && @io.wait_writable(remaining)
+          else
+            data = data.byteslice(written..)
+          end
+        end
+        true
+      end
+
+      def stop_stalled
+        log_error("client stopped reading; closing the connection")
+        @native.close
+        close_io
+        nil
+      end
+
+      def monotonic_now
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
       end
 
       def close_io

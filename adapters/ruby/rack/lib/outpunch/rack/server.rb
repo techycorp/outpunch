@@ -13,11 +13,13 @@ module Outpunch
       def initialize(secret:, timeout: 25)
         raise ArgumentError, "outpunch secret must be set" if secret.nil? || secret.to_s.empty?
 
-        @native = Outpunch::Server.new(secret.to_s, timeout.to_f, nil)
+        @timeout = timeout.to_f
+        @native = Outpunch::Server.new(secret.to_s, @timeout, nil)
       end
 
+      # A socket write that takes longer than the request timeout closes the connection.
       def create_connection
-        Connection.new(@native.create_connection)
+        Connection.new(@native.create_connection, write_timeout: @timeout)
       end
 
       def connected?(service_name)

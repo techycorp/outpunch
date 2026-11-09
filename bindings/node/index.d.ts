@@ -10,6 +10,8 @@ export declare class OutpunchConnection {
 export declare class OutpunchServer {
   constructor(config: ServerConfig)
   createConnection(): OutpunchConnection
+  /** False only for a request message whose caller has already been answered. */
+  isPending(msg: string): boolean
   handleRequest(request: IncomingRequest): Promise<TunnelResponse>
 }
 

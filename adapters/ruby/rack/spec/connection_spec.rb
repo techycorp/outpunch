@@ -60,6 +60,25 @@ RSpec.describe Outpunch::Rack::Connection do
       expect(server.connected?("svc")).to be false
     end
 
+    # F7 in spec/FINDINGS.md.
+    context "when the client stays connected but stops reading" do
+      let(:server) { Outpunch::Rack::Server.new(secret: secret, timeout: 0.5) }
+
+      it "closes the connection once a write has waited longer than the request timeout" do
+        socket = stalled_client(port, service: "svc", token: secret)
+        expect(server.connected?("svc")).to be true
+
+        body = "x" * (256 * 1024)
+        requests = Array.new(100) { request_thread(server, "svc", method: "POST", body: body) }
+        requests.each(&:join)
+        sleep 1
+
+        expect(server.connected?("svc")).to be false
+      ensure
+        socket&.close
+      end
+    end
+
     it "relays requests with string query and header values" do
       client = authed_client(port, service: "svc", token: secret)
       thread = request_thread(server, "svc", method: "POST", path: "api/x",

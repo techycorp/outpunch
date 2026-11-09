@@ -19,6 +19,9 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
   });
   const tunnelPrefix = options.tunnelPrefix ?? '/tunnel';
   const wsPath = options.wsPath ?? '/ws';
+  // A frame not written within the request timeout means the client stopped reading: the
+  // connection is closed (F7 in spec/FINDINGS.md).
+  const writeTimeoutMs = options.timeoutMs ?? 25000;
   const wss = new WebSocketServer({ noServer: true });
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): boolean {
@@ -84,10 +87,32 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
     wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
       const connection = server.createConnection();
 
+      // One message on the socket at a time: ws.send's callback fires once the frame has
+      // been written, so the rest wait here, where a request whose caller has already been
+      // answered can still be dropped (F5 in spec/FINDINGS.md).
+      const queue: string[] = [];
+      let writing = false;
+      const flush = () => {
+        if (writing || ws.readyState !== WebSocket.OPEN) return;
+        let msg = queue.shift();
+        while (msg !== undefined && !server.isPending(msg)) msg = queue.shift();
+        if (msg === undefined) return;
+        writing = true;
+        const stalled = setTimeout(() => {
+          queue.length = 0;
+          connection.close();
+          ws.terminate();
+        }, writeTimeoutMs);
+        ws.send(msg, () => {
+          clearTimeout(stalled);
+          writing = false;
+          flush();
+        });
+      };
+
       connection.onMessage((_err: null, msg: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(msg);
-        }
+        queue.push(msg);
+        flush();
       });
 
       ws.on('message', (data: Buffer) => {
@@ -95,6 +120,7 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
       });
 
       ws.on('close', () => {
+        queue.length = 0;
         connection.close();
       });
 

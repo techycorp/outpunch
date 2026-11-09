@@ -115,6 +115,19 @@ module TunnelHarness
     client
   end
 
+  # A raw WebSocket client that authenticates, reads auth_ok, and then never reads again.
+  def stalled_client(port, service:, token:)
+    socket = TCPSocket.new("127.0.0.1", port)
+    socket.write("GET /ws HTTP/1.1\r\nHost: 127.0.0.1:#{port}\r\nUpgrade: websocket\r\n" \
+                 "Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" \
+                 "Sec-WebSocket-Version: 13\r\n\r\n")
+    nil until socket.gets == "\r\n"
+    socket.write(masked_text_frame(JSON.generate(type: "auth", token: token, service: service)))
+    _header = socket.read(2)
+    expect(JSON.parse(socket.readpartial(1024))["type"]).to eq("auth_ok")
+    socket
+  end
+
   def request_thread(server, service, **overrides)
     Thread.new do
       server.handle_request(service: service, method: "GET", path: "test",
@@ -125,6 +138,14 @@ module TunnelHarness
   end
 
   private
+
+  def masked_text_frame(text)
+    mask = [1, 2, 3, 4]
+    payload = text.bytes.each_with_index.map { |b, i| b ^ mask[i % 4] }
+    raise ArgumentError, "short frames only" if payload.size > 125
+
+    ([0x81, 0x80 | payload.size] + mask + payload).pack("C*")
+  end
 
   def wait_for_port(port)
     50.times do

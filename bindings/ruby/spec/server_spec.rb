@@ -62,6 +62,68 @@ RSpec.describe Outpunch::Server do
     runner&.join
   end
 
+  # F5 in spec/FINDINGS.md.
+  it "does not hand out a request whose caller already timed out" do
+    fast = described_class.new("test-secret", 0.1, nil)
+    conn = fast.create_connection
+    runner = Thread.new { conn.run }
+    conn.push_message(JSON.generate(type: "auth", token: "test-secret", service: "svc"))
+    conn.next_outgoing
+
+    expect { request("svc", fast) }.to raise_error(Timeout::Error)
+    reader = Thread.new { conn.next_outgoing }
+    expect(reader.join(0.5)).to be_nil
+    conn.close
+    expect(reader.value).to be_nil
+  ensure
+    conn&.close
+    runner&.join
+  end
+
+  # F7 in spec/FINDINGS.md: the binding does not own the socket, so it detects a consumer that
+  # stopped calling next_outgoing instead of a stuck write.
+  it "closes the connection when a message waits for next_outgoing longer than the request timeout" do
+    fast = described_class.new("test-secret", 0.2, nil)
+    conn = fast.create_connection
+    runner = Thread.new { conn.run }
+    conn.push_message(JSON.generate(type: "auth", token: "test-secret", service: "svc"))
+    conn.next_outgoing
+
+    expect { request("svc", fast) }.to raise_error(Timeout::Error)
+    sleep 0.1
+    expect { request("svc", fast) }.to raise_error(Outpunch::TunnelError)
+    expect(runner.join(1)).not_to be_nil
+    expect(fast.connected?("svc")).to be false
+  ensure
+    conn&.close
+    runner&.join
+  end
+
+  it "keeps the connection of a consumer that takes each message within the timeout" do
+    fast = described_class.new("test-secret", 0.2, nil)
+    conn = fast.create_connection
+    runner = Thread.new { conn.run }
+    conn.push_message(JSON.generate(type: "auth", token: "test-secret", service: "svc"))
+    conn.next_outgoing
+    client = Thread.new do
+      3.times do
+        req = JSON.parse(conn.next_outgoing)
+        conn.push_message(JSON.generate(type: "response", request_id: req["request_id"],
+                                        status: 200, headers: {}, body: "ok"))
+      end
+    end
+
+    3.times do
+      expect(request("svc", fast)).to include("status" => 200)
+      sleep 0.3
+    end
+    client.join
+    expect(fast.connected?("svc")).to be true
+  ensure
+    conn&.close
+    runner&.join
+  end
+
   it "rejects a bad token and ends the connection" do
     conn = server.create_connection
     runner = Thread.new { conn.run }

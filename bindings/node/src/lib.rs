@@ -39,6 +39,12 @@ impl OutpunchServer {
         }
     }
 
+    /// False only for a request message whose caller has already been answered.
+    #[napi]
+    pub fn is_pending(&self, msg: String) -> bool {
+        self.inner.is_pending(&msg)
+    }
+
     #[napi]
     pub async fn handle_request(&self, request: IncomingRequest) -> Result<TunnelResponse> {
         let incoming = outpunch::protocol::IncomingRequest {

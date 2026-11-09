@@ -110,9 +110,20 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
         let _ = msg_tx.send(msg);
     });
 
-    let write_handle = tokio::spawn(async move {
+    // Skips requests whose caller has already been answered (F5). A write that takes longer
+    // than the request timeout closes the connection (F7).
+    let server_for_write = server.clone();
+    let conn_for_write = connection.clone();
+    let mut write_handle = tokio::spawn(async move {
+        let write_timeout = server_for_write.request_timeout();
         while let Some(msg) = msg_rx.recv().await {
-            if ws_sink.send(WsMessage::text(msg)).await.is_err() {
+            if !server_for_write.is_pending(&msg) {
+                continue;
+            }
+            let written =
+                tokio::time::timeout(write_timeout, ws_sink.send(WsMessage::text(msg))).await;
+            if !matches!(written, Ok(Ok(()))) {
+                conn_for_write.close();
                 break;
             }
         }
@@ -136,8 +147,14 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
     // Core handles the connection lifecycle.
     connection.run().await;
 
-    // Give the write task time to flush remaining messages before closing
-    let _ = tokio::time::timeout(Duration::from_millis(100), write_handle).await;
+    // Give the write task time to flush remaining messages, then stop it: a peer that never
+    // reads would otherwise keep the task and the socket alive (F6).
+    if tokio::time::timeout(Duration::from_millis(100), &mut write_handle)
+        .await
+        .is_err()
+    {
+        write_handle.abort();
+    }
     read_handle.abort();
 }
 

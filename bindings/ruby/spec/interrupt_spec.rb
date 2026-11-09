@@ -134,6 +134,30 @@ RSpec.describe "native calls interrupted without an exception" do
     end
   end
 
+  # F2 in spec/FINDINGS.md.
+  context "when two threads wait for outgoing messages on one connection" do
+    it "stops the one waiting for the receiver when it is interrupted with an exception" do
+      conn, runner, = connect
+      first = Thread.new { conn.next_outgoing }
+      sleep 0.1
+      second = Thread.new { conn.next_outgoing }
+      sleep 0.1
+
+      second.raise(RuntimeError, "stop")
+
+      expect { within(1) { second.join } }.to raise_error(RuntimeError, "stop")
+    ensure
+      conn&.close
+      runner&.join(2)
+      first&.join(2)
+      begin
+        second&.join(2)
+      rescue RuntimeError
+        nil
+      end
+    end
+  end
+
   context "when a thread is interrupted with an exception" do
     it "stops a push that is waiting for room in the queue" do
       conn = server.create_connection
