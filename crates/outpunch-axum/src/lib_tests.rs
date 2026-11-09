@@ -288,10 +288,12 @@ async fn slow_reading_client_does_not_lose_requests() {
     // Client stops reading long enough for the socket buffers to fill.
     tokio::time::sleep(Duration::from_secs(1)).await;
 
+    // Waits longer for the first frame, so a slow start cannot end the reader early.
     let mut received = 0;
-    while let Ok(Some(Ok(ClientMessage::Text(text)))) =
-        tokio::time::timeout(Duration::from_secs(2), ws.next()).await
+    let mut quiet = Duration::from_secs(10);
+    while let Ok(Some(Ok(ClientMessage::Text(text)))) = tokio::time::timeout(quiet, ws.next()).await
     {
+        quiet = Duration::from_secs(2);
         if text.contains(r#""type":"request""#) {
             received += 1;
         }

@@ -625,8 +625,9 @@ test('timed-out requests must not be delivered to a client that reads slowly', a
   await new Promise((r) => setTimeout(r, 2000));
 
   // Requests written before their timeout still arrive: about 20 in 500 ms at this pace, plus what
-  // the socket buffers hold. Without the check, all 200 arrive.
-  expect(received).toBeLessThanOrEqual(requests / 4);
+  // the socket buffers hold (about 60 on macOS CI). Without the check, all 200 arrive.
+  expect(received).toBeGreaterThan(0);
+  expect(received).toBeLessThan(requests / 2);
   ws.close();
 }, 15000);
 
