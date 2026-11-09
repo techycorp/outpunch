@@ -119,6 +119,23 @@ pub fn parse_message(raw: &str) -> Result<Message, String> {
     }
 }
 
+/// The `request_id` of a `request` message, without copying its other fields; `None` for
+/// any other message or unparsable JSON.
+pub fn request_id_of(raw: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Envelope {
+        #[serde(rename = "type")]
+        msg_type: String,
+        request_id: Option<String>,
+    }
+    let envelope: Envelope = serde_json::from_str(raw).ok()?;
+    if envelope.msg_type == "request" {
+        envelope.request_id
+    } else {
+        None
+    }
+}
+
 /// Serialize a TunnelRequest to JSON string.
 pub fn serialize_request(req: &TunnelRequest) -> String {
     serde_json::to_string(req).expect("TunnelRequest serialization should never fail")

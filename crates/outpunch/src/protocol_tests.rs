@@ -167,3 +167,23 @@ fn response_with_base64_body_encoding() {
         panic!("expected Response");
     }
 }
+
+#[test]
+fn request_id_of_reads_only_request_messages() {
+    let req = build_tunnel_request(&IncomingRequest {
+        service: "svc".to_string(),
+        method: "POST".to_string(),
+        path: "x".to_string(),
+        query: HashMap::new(),
+        headers: HashMap::new(),
+        body: Some("body".to_string()),
+    });
+    assert_eq!(
+        request_id_of(&serialize_request(&req)),
+        Some(req.request_id.clone())
+    );
+    let resp = error_response(&req.request_id, 504, "timeout");
+    assert_eq!(request_id_of(&serialize_response(&resp)), None);
+    assert_eq!(request_id_of(r#"{"type":"auth_ok"}"#), None);
+    assert_eq!(request_id_of("not json"), None);
+}

@@ -87,7 +87,7 @@ async fn handle_request_timeout_returns_504() {
     // Register a fake service handle that never responds
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
     {
-        let mut state = server.state.lock().await;
+        let mut state = server.state.lock().unwrap();
         state
             .services
             .insert("my-service".to_string(), fake_handle(outgoing_tx));
@@ -118,7 +118,7 @@ async fn full_request_response_cycle() {
     // Set up a fake service handle
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<String>(16);
     {
-        let mut state = server.state.lock().await;
+        let mut state = server.state.lock().unwrap();
         state
             .services
             .insert("my-service".to_string(), fake_handle(outgoing_tx));
@@ -142,7 +142,7 @@ async fn full_request_response_cycle() {
             };
 
             // Deliver the response directly to the pending map
-            let mut state = server_clone.state.lock().await;
+            let mut state = server_clone.state.lock().unwrap();
             if let Some(pending) = state.pending.remove(&req.request_id) {
                 let _ = pending.tx.send(resp);
             }
@@ -315,7 +315,7 @@ async fn stalled_service_does_not_block_other_services() {
     let (outgoing_tx, _outgoing_rx) = mpsc::channel::<String>(1);
     outgoing_tx.send("fill".to_string()).await.unwrap();
     {
-        let mut state = server.state.lock().await;
+        let mut state = server.state.lock().unwrap();
         state
             .services
             .insert("stalled".to_string(), fake_handle(outgoing_tx));
@@ -509,7 +509,7 @@ async fn handle_request_returns_502_when_client_channel_closed() {
 
     let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
     {
-        let mut state = server.state.lock().await;
+        let mut state = server.state.lock().unwrap();
         state
             .services
             .insert("my-service".to_string(), fake_handle(outgoing_tx));
@@ -544,7 +544,7 @@ async fn handle_request_returns_502_when_oneshot_sender_dropped() {
 
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
     {
-        let mut state = server.state.lock().await;
+        let mut state = server.state.lock().unwrap();
         state
             .services
             .insert("my-service".to_string(), fake_handle(outgoing_tx));
@@ -555,7 +555,7 @@ async fn handle_request_returns_502_when_oneshot_sender_dropped() {
     // Receive the request, then drop the pending sender (simulate disconnect)
     tokio::spawn(async move {
         let _ = outgoing_rx.recv().await;
-        let mut state = server_clone.state.lock().await;
+        let mut state = server_clone.state.lock().unwrap();
         state.pending.clear();
     });
 
@@ -707,7 +707,7 @@ async fn try_handle_request_timeout() {
     server
         .state
         .lock()
-        .await
+        .unwrap()
         .services
         .insert("my-service".to_string(), fake_handle(outgoing_tx));
     tokio::spawn(async move { while outgoing_rx.recv().await.is_some() {} });
@@ -781,7 +781,7 @@ async fn send_to_stalled_client_respects_timeout() {
     server
         .state
         .lock()
-        .await
+        .unwrap()
         .services
         .insert("stalled".to_string(), fake_handle(outgoing_tx));
 
@@ -794,5 +794,280 @@ async fn send_to_stalled_client_respects_timeout() {
     .unwrap_err();
 
     assert_eq!(err, TunnelError::Timeout);
-    assert!(server.state.lock().await.pending.is_empty());
+    assert!(server.state.lock().unwrap().pending.is_empty());
+}
+
+/// Waits until the pending map holds `n` entries.
+async fn wait_for_pending(server: &OutpunchServer, n: usize) {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while server.state.lock().unwrap().pending.len() != n {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("pending map should reach the expected size");
+}
+
+// Regression tests for F1 in spec/FINDINGS.md: a cancelled request must not leak its pending entry.
+#[tokio::test]
+async fn cancelled_request_while_send_blocked_removes_pending() {
+    let server = OutpunchServer::new(test_config());
+    let (outgoing_tx, _outgoing_rx) = mpsc::channel::<String>(1);
+    outgoing_tx.send("fill".to_string()).await.unwrap();
+    server
+        .state
+        .lock()
+        .unwrap()
+        .services
+        .insert("stalled".to_string(), fake_handle(outgoing_tx));
+
+    let request = tokio::spawn({
+        let server = server.clone();
+        async move { server.handle_request(plain_request("stalled")).await }
+    });
+    wait_for_pending(&server, 1).await;
+
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+
+    assert!(server.state.lock().unwrap().pending.is_empty());
+}
+
+#[tokio::test]
+async fn cancelled_request_awaiting_response_removes_pending() {
+    let server = OutpunchServer::new(test_config());
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<String>(16);
+    server
+        .state
+        .lock()
+        .unwrap()
+        .services
+        .insert("silent".to_string(), fake_handle(outgoing_tx));
+
+    let request = tokio::spawn({
+        let server = server.clone();
+        async move { server.handle_request(plain_request("silent")).await }
+    });
+    // The request reaches the client, which never answers.
+    let _ = outgoing_rx.recv().await.unwrap();
+
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+
+    assert!(server.state.lock().unwrap().pending.is_empty());
+}
+
+// F3 in spec/FINDINGS.md (spec/RunDrop.cfg, spec/RunDropLive.cfg): dropping the run()
+// future still runs cleanup_connection.
+#[tokio::test]
+async fn dropped_run_unregisters_and_fails_pending() {
+    let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
+    let run = tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
+    let _ = outgoing_rx.recv().await.unwrap();
+
+    let request = tokio::spawn({
+        let server = server.clone();
+        async move { server.try_handle_request(plain_request("my-service")).await }
+    });
+    let _ = outgoing_rx.recv().await.unwrap();
+
+    run.abort();
+    let _ = run.await;
+
+    let result = tokio::time::timeout(Duration::from_secs(1), request)
+        .await
+        .expect("in-flight request should fail fast, not wait for the timeout")
+        .unwrap();
+    assert_eq!(result.unwrap_err(), TunnelError::Disconnected);
+    assert!(!server.is_connected("my-service").await);
+}
+
+// F4 in spec/FINDINGS.md (spec/DrainDeath.cfg): if the on_message callback panics, the
+// drain task dies and the connection closes, so the service is unregistered.
+#[tokio::test]
+async fn dead_callback_unregisters_service() {
+    let server = OutpunchServer::new(ServerConfig {
+        secret: "test-secret".to_string(),
+        timeout: Duration::from_millis(200),
+        ..ServerConfig::default()
+    });
+    let connection = server.create_connection();
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+    connection.on_message(move |msg| {
+        if msg.contains(r#""type":"request""#) {
+            panic!("callback panic (F4 test)");
+        }
+        let _ = tx.try_send(msg);
+    });
+    let _run = tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
+    let _ = rx.recv().await.unwrap();
+
+    let _ = server.try_handle_request(plain_request("my-service")).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert!(!server.is_connected("my-service").await);
+    assert_eq!(
+        server
+            .try_handle_request(plain_request("my-service"))
+            .await
+            .unwrap_err(),
+        TunnelError::NotConnected
+    );
+}
+
+/// Reads the next outgoing message, which must be a tunnel request, and returns its id.
+async fn next_request_id(outgoing_rx: &mut mpsc::Receiver<String>) -> String {
+    match protocol::parse_message(&outgoing_rx.recv().await.unwrap()).unwrap() {
+        Message::Request(req) => req.request_id,
+        other => panic!("expected a request, got: {other:?}"),
+    }
+}
+
+fn ok_response(request_id: &str) -> String {
+    protocol::serialize_response(&TunnelResponse {
+        msg_type: "response".to_string(),
+        request_id: request_id.to_string(),
+        status: 200,
+        headers: HashMap::new(),
+        body: None,
+        body_encoding: None,
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn request_times_out_over_a_real_connection() {
+    let server = OutpunchServer::new(ServerConfig {
+        secret: "test-secret".to_string(),
+        timeout: Duration::from_millis(100),
+        ..ServerConfig::default()
+    });
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
+    let run = tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
+    let _auth_ok = outgoing_rx.recv().await.unwrap();
+
+    // The client receives the request and never answers.
+    let err = server
+        .try_handle_request(plain_request("my-service"))
+        .await
+        .unwrap_err();
+    assert_eq!(err, TunnelError::Timeout);
+    assert!(server.state.lock().unwrap().pending.is_empty());
+
+    connection.close();
+    run.await.unwrap();
+}
+
+#[tokio::test]
+async fn connection_keeps_serving_after_a_request_is_cancelled() {
+    let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
+    let run = tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
+    let _auth_ok = outgoing_rx.recv().await.unwrap();
+
+    let cancelled = tokio::spawn({
+        let server = server.clone();
+        async move { server.try_handle_request(plain_request("my-service")).await }
+    });
+    let _ = next_request_id(&mut outgoing_rx).await;
+    cancelled.abort();
+    assert!(cancelled.await.unwrap_err().is_cancelled());
+    assert!(server.state.lock().unwrap().pending.is_empty());
+
+    let answered = tokio::spawn({
+        let server = server.clone();
+        async move { server.try_handle_request(plain_request("my-service")).await }
+    });
+    let request_id = next_request_id(&mut outgoing_rx).await;
+    connection.push_message(ok_response(&request_id)).await;
+    assert_eq!(answered.await.unwrap().unwrap().status, 200);
+
+    connection.close();
+    run.await.unwrap();
+}
+
+// F5 in spec/FINDINGS.md: adapters drop an outgoing request once its caller has an answer.
+#[tokio::test]
+async fn request_is_pending_until_its_caller_is_answered() {
+    let server = OutpunchServer::new(ServerConfig {
+        secret: "test-secret".to_string(),
+        timeout: Duration::from_millis(50),
+        ..ServerConfig::default()
+    });
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    server
+        .state
+        .lock()
+        .unwrap()
+        .services
+        .insert("my-service".to_string(), fake_handle(outgoing_tx));
+
+    let caller = {
+        let server = server.clone();
+        tokio::spawn(async move {
+            server
+                .handle_request(IncomingRequest {
+                    service: "my-service".to_string(),
+                    method: "GET".to_string(),
+                    path: "test".to_string(),
+                    query: HashMap::new(),
+                    headers: HashMap::new(),
+                    body: None,
+                })
+                .await
+        })
+    };
+    let msg = outgoing_rx.recv().await.unwrap();
+    assert!(server.is_pending(&msg));
+
+    assert_eq!(caller.await.unwrap().status, 504);
+    assert!(!server.is_pending(&msg));
+}
+
+#[test]
+fn messages_other_than_requests_are_always_pending() {
+    let server = OutpunchServer::new(test_config());
+    assert!(server.is_pending(r#"{"type":"auth_ok"}"#));
+    assert!(server.is_pending(r#"{"type":"auth_error","message":"invalid token"}"#));
+    assert!(server.is_pending("not json"));
+    assert!(!server.is_pending(
+        r#"{"type":"request","request_id":"unknown","method":"GET","path":"","query":{},"headers":{}}"#
+    ));
+}
+
+#[test]
+fn weak_connection_does_not_keep_the_connection_alive() {
+    let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let weak = connection.downgrade();
+    assert!(weak.upgrade().is_some());
+    drop(connection);
+    assert!(weak.upgrade().is_none());
 }
