@@ -1,0 +1,38 @@
+# TLA+ models and their expected TLC outcome. Run: just tla-all
+# <spec> <config> <expect>
+#   pass            no error
+#   fail:Name       the named invariant or temporal property is violated (a documented finding)
+#   reach:A,B       each named invariant is violated when checked on its own (non-vacuity witnesses)
+# Anything after <expect> is passed to TLC (e.g. -simulate for random simulation).
+spec/Tunnel.tla spec/Tunnel.cfg        pass
+spec/Tunnel.tla spec/EmptySecret.cfg   pass
+spec/Tunnel.tla spec/Large3Conns.cfg    pass
+spec/Tunnel.tla spec/Large2Services.cfg pass
+spec/Tunnel.tla spec/LargeMsgs.cfg      pass
+spec/Tunnel.tla spec/LargeSim.cfg       pass -simulate num=200000 -depth 80
+spec/Tunnel.tla spec/Witness.cfg       reach:NeverOk,NeverTimeout,NeverDisconnected502,NeverReplaced,NeverCancelled,NeverDroppedWhilePending,NeverNotConnected
+spec/Tunnel.tla spec/Flapping.cfg      fail:Settles
+spec/Tunnel.tla spec/RunDrop.cfg       pass
+spec/Tunnel.tla spec/RunDropLive.cfg   pass
+spec/Tunnel.tla spec/RunDropOther.cfg  pass
+spec/Tunnel.tla spec/DrainDeath.cfg    pass
+spec/RubyGvl.tla spec/RubyGvl.cfg              pass
+spec/RubyGvl.tla spec/RubyGvlRecvSafety.cfg    pass
+spec/RubyGvl.tla spec/RubyGvlRecvOne.cfg       pass
+spec/RubyGvl.tla spec/RubyGvlWitness.cfg       reach:NeverAborted,NeverCancelled,NeverOk,NeverRaised,NeverRetriedThenOk,NeverSkipped
+spec/RubyGvl.tla spec/RubyGvlRecv.cfg          pass
+spec/RubyGvl.tla spec/RubyGvlPre052Skip.cfg    fail:ResultOnlyIfRan
+spec/RubyGvl.tla spec/RubyGvlPre052Wakeup.cfg  fail:NoEndWithoutResult
+spec/RubyGvl.tla spec/RubyGvlNoGuard.cfg       fail:NoLeak
+spec/MultiClient.tla spec/MultiClient.cfg          pass
+spec/MultiClient.tla spec/MultiClientLiveness.cfg  pass
+spec/MultiClient.tla spec/MultiClientSafety.cfg    pass
+spec/MultiClient.tla spec/MultiClientEmptySecret.cfg pass
+spec/MultiClient.tla spec/MultiClientWitness.cfg   reach:NeverOk,NeverCoexist,NeverReplaced,NeverLiveReplaced,NeverEvicted,NeverDeadPick,NeverDeadPickNoId,NeverDeadPickFailed
+spec/AxumBridge.tla spec/AxumBridge.cfg   pass
+spec/AxumBridge.tla spec/AxumWitness.cfg  reach:NeverWritten,NeverDrainEnds,NeverWriteEnds,NeverWriteTimeout
+spec/AxumBridge.tla spec/AxumStale.cfg    fail:QueueOnlyLive
+spec/AxumBridge.tla spec/AxumLate.cfg     pass
+spec/AxumBridge.tla spec/AxumInFlight.cfg fail:NoLateWriteAtAll
+spec/AxumBridge.tla spec/AxumStalled.cfg  pass
+spec/AxumBridge.tla spec/AxumStuck.cfg    pass

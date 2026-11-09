@@ -1,0 +1,207 @@
+Known bugs that the model properties must catch. Run: just tla-mutants
+Format: see scripts/tla/mutants.
+
+## name: R1 auth accepts any token
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: RoutedOnlyIfAuthed
+--- old
+Valid(m) == m.type = "auth" /\ SecretSet /\ m.token = "right"
+--- new
+Valid(m) == m.type = "auth"
+===
+
+## name: R2 empty secret accepted
+## spec: spec/Tunnel.tla
+## cfg: spec/EmptySecret.cfg
+## expect: EmptySecretRejectsAll
+--- old
+Valid(m) == m.type = "auth" /\ SecretSet /\ m.token = "right"
+--- new
+Valid(m) == m.type = "auth" /\ m.token = "right"
+===
+
+## name: R9 replaced connection is not closed
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: ReplacedIsClosed
+--- old
+                ELSE [conn EXCEPT ![c].phase = "relay", ![o].open = FALSE]
+--- new
+                ELSE [conn EXCEPT ![c].phase = "relay"]
+===
+
+## name: R10 cleanup removes the service without the conn_id check
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoStaleRemoval
+--- old
+        /\ services' = IF services[s] = c THEN [services EXCEPT ![s] = None] ELSE services
+--- new
+        /\ services' = [services EXCEPT ![s] = None]
+===
+
+## name: R13 any connection may answer any pending request
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: ResponseFromTarget
+--- old
+        IF m.type = "resp" /\ pending[m.req] = c
+--- new
+        IF m.type = "resp" /\ pending[m.req] /= None
+===
+
+## name: R17 cleanup does not fail the connection's pending requests
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoPendingOnFinishedConn
+--- old
+        /\ pending' = [r \in Reqs |-> IF r \in mine THEN None ELSE pending[r]]
+        /\ oneshot' = DropSender(oneshot, mine)
+--- new
+        /\ UNCHANGED <<pending, oneshot>>
+===
+
+## name: R17 timer may beat a resolved response (wrong tokio poll order)
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoTimeoutAfterDisconnect
+--- old
+    /\ ~(caller[r].st = "waiting" /\ oneshot[r].st /= "empty")
+    /\ caller' = [caller EXCEPT ![r].st = "removing", ![r].res = "504",
+--- new
+    /\ caller' = [caller EXCEPT ![r].st = "removing", ![r].res = "504",
+===
+
+## name: F1 PendingGuard missing (cancel leaves the entry)
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoPendingAfterCancel
+--- old
+GuardDrop(r) ==
+    /\ caller[r].st = "dropping"
+    /\ pending' = [pending EXCEPT ![r] = None]
+    /\ oneshot' = DropSender(oneshot, {r})
+    /\ caller' = [caller EXCEPT ![r].st = "cancelled"]
+    /\ UNCHANGED <<services, conn, delivered, authed, lastReg>>
+--- new
+GuardDrop(r) ==
+    /\ caller[r].st = "dropping"
+    /\ caller' = [caller EXCEPT ![r].st = "cancelled"]
+    /\ UNCHANGED <<services, pending, conn, oneshot, delivered, authed, lastReg>>
+===
+
+## name: F1 PendingGuard missing (liveness view)
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoLeak
+--- old
+GuardDrop(r) ==
+    /\ caller[r].st = "dropping"
+    /\ pending' = [pending EXCEPT ![r] = None]
+    /\ oneshot' = DropSender(oneshot, {r})
+    /\ caller' = [caller EXCEPT ![r].st = "cancelled"]
+    /\ UNCHANGED <<services, conn, delivered, authed, lastReg>>
+--- new
+GuardDrop(r) ==
+    /\ caller[r].st = "dropping"
+    /\ caller' = [caller EXCEPT ![r].st = "cancelled"]
+    /\ UNCHANGED <<services, pending, conn, oneshot, delivered, authed, lastReg>>
+===
+
+## name: R21 a request may be answered NotConnected while the newest registrant runs
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoSpuriousNotConnected
+--- old
+    /\ IF services[s] = None
+       THEN /\ caller' = [caller EXCEPT ![r].st = "done", ![r].res = "502",
+--- new
+    /\ IF services[s] = None \/ conn[services[s]].phase = "kick"
+       THEN /\ caller' = [caller EXCEPT ![r].st = "done", ![r].res = "502",
+===
+
+## name: R14 request timer may never fire
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: EveryRequestEnds
+--- old
+        /\ WF_vars(Receive(r)) /\ WF_vars(Timeout(r)) /\ WF_vars(Remove(r))
+--- new
+        /\ WF_vars(Receive(r)) /\ WF_vars(Remove(r))
+===
+
+## name: R15 timer may beat a response that already arrived on a live connection
+## spec: spec/Tunnel.tla
+## cfg: spec/Tunnel.cfg
+## expect: NoTimeoutOverResponse
+--- old
+    /\ ~(caller[r].st = "waiting" /\ oneshot[r].st /= "empty")
+    /\ caller' = [caller EXCEPT ![r].st = "removing", ![r].res = "504",
+--- new
+    /\ caller' = [caller EXCEPT ![r].st = "removing", ![r].res = "504",
+===
+
+## name: F5 write task writes requests whose caller was already answered
+## spec: spec/AxumBridge.tla
+## cfg: spec/AxumLate.cfg
+## expect: NoLateWrite
+--- old
+    /\ held' = IF req[Head(wq)] = "done" THEN {} ELSE {Head(wq)}
+--- new
+    /\ held' = {Head(wq)}
+===
+
+## name: F3 run() dropped without its cleanup guard
+## spec: spec/Tunnel.tla
+## cfg: spec/RunDrop.cfg
+## expect: NoPendingOnFinishedConn
+--- old
+    /\ conn' = [conn EXCEPT ![c].phase = IF conn[c].phase = "relay" THEN "cleanup" ELSE "dropped"]
+--- new
+    /\ conn' = [conn EXCEPT ![c].phase = "dropped"]
+===
+
+## name: F4 dead drain task does not close its connection
+## spec: spec/Tunnel.tla
+## cfg: spec/DrainDeath.cfg
+## expect: DeadUnregistered
+--- old
+    /\ ~conn[c].drain /\ conn[c].open
+--- new
+    /\ FALSE
+===
+
+## name: F2 next_outgoing waits for the receiver lock outside the select!
+## spec: spec/RubyGvl.tla
+## cfg: spec/RubyGvlRecv.cfg
+## expect: ExceptionStopsCall
+--- old
+    /\ pc[t] = "lock"
+    /\ permit[t]
+--- new
+    /\ FALSE
+===
+
+## name: F6 handle_ws leaves the write task running after the flush timeout
+## spec: spec/AxumBridge.tla
+## cfg: spec/AxumStalled.cfg
+## expect: WriteTaskEnds
+--- old
+    /\ write' = FALSE /\ held' = {}
+    /\ UNCHANGED <<req, outq, wq, written, late, excused, peer, core, open, registered, drain>>
+--- new
+    /\ UNCHANGED <<req, outq, wq, written, late, held, excused, peer, core, open, registered, drain, write>>
+===
+
+## name: F7 no write timeout
+## spec: spec/AxumBridge.tla
+## cfg: spec/AxumStuck.cfg
+## expect: StalledPeerUnregistered
+--- old
+    /\ WriteTimeouts
+    /\ write /\ held /= {} /\ peer = "stalled"
+--- new
+    /\ FALSE
+    /\ write /\ held /= {} /\ peer = "stalled"
+===
