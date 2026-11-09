@@ -270,6 +270,18 @@ async fn start_outpunch_server(secret: &str) -> String {
     format!("ws://127.0.0.1:{}/ws", addr.port())
 }
 
+/// Polls a tunnel URL until the client is registered (the server stops answering 502).
+async fn wait_for_tunnel(url: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while reqwest::get(url).await.unwrap().status() == 502 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the client never registered"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn run_connection_authenticates_and_receives_requests() {
     let ws_url = start_outpunch_server("test-secret").await;
@@ -288,11 +300,9 @@ async fn run_connection_authenticates_and_receives_requests() {
     let config_clone = config.clone();
     let conn_handle = tokio::spawn(async move { run_connection(&config_clone).await });
 
-    // Give client time to connect and auth
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
     // Make an HTTP request through the tunnel
     let http_url = ws_url.replace("ws://", "http://").replace("/ws", "");
+    wait_for_tunnel(&format!("{http_url}/tunnel/my-service/api/hello")).await;
     let resp = reqwest::get(format!("{http_url}/tunnel/my-service/api/hello"))
         .await
         .unwrap();
@@ -527,12 +537,17 @@ fn make_request(path: &str, query: HashMap<String, String>) -> TunnelRequest {
 #[tokio::test]
 async fn run_connection_does_not_serialize_requests_behind_slow_one() {
     let ws_url = start_outpunch_server("test-secret").await;
+    let slow_started = std::sync::Arc::new(tokio::sync::Notify::new());
     let local_app = Router::new()
         .route(
             "/slow",
-            get(|| async {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                "slow"
+            get({
+                let slow_started = slow_started.clone();
+                || async move {
+                    slow_started.notify_one();
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    "slow"
+                }
             }),
         )
         .route("/fast", get(|| async { "fast" }));
@@ -546,12 +561,15 @@ async fn run_connection_does_not_serialize_requests_behind_slow_one() {
         ..ClientConfig::default()
     };
     let conn_handle = tokio::spawn(async move { run_connection(&config).await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let http_url = ws_url.replace("ws://", "http://").replace("/ws", "");
+    wait_for_tunnel(&format!("{http_url}/tunnel/my-service/fast")).await;
     let slow_url = format!("{http_url}/tunnel/my-service/slow");
     let slow = tokio::spawn(async move { reqwest::get(slow_url).await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The slow request is in the local service before the fast one is sent.
+    tokio::time::timeout(Duration::from_secs(5), slow_started.notified())
+        .await
+        .expect("the slow request never reached the local service");
 
     let fast = tokio::time::timeout(
         Duration::from_secs(1),
@@ -563,5 +581,106 @@ async fn run_connection_does_not_serialize_requests_behind_slow_one() {
     assert_eq!(fast.text().await.unwrap(), "fast");
 
     slow.abort();
+    conn_handle.abort();
+}
+
+fn heartbeat_config(ws_url: String) -> ClientConfig {
+    ClientConfig {
+        server_url: ws_url,
+        secret: "s".to_string(),
+        service: "svc".to_string(),
+        ping_interval: Duration::from_millis(200),
+        idle_timeout: Duration::from_secs(1),
+        ..ClientConfig::default()
+    }
+}
+
+// R31 in spec/REQUIREMENTS.md: a server that stops answering (a half-open connection, as when
+// a Heroku dyno goes away without closing the socket) is detected within idle_timeout, not
+// when TCP gives up on the unacknowledged pings (~15 minutes on Linux).
+#[tokio::test]
+async fn run_connection_gives_up_on_a_server_that_stops_answering() {
+    let ws_url = start_raw_ws_server(|mut socket| async move {
+        let _ = socket.recv().await;
+        socket
+            .send(AxumWsMsg::Text(r#"{"type":"auth_ok"}"#.into()))
+            .await
+            .unwrap();
+        // Hold the socket without reading it: pings get no pong.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        drop(socket);
+    })
+    .await;
+
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        run_connection(&heartbeat_config(ws_url)),
+    )
+    .await
+    .expect("the client should give up well before the server lets go");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("no message from the server"), "{err}");
+    assert!(started.elapsed() >= Duration::from_millis(900));
+}
+
+#[tokio::test]
+async fn run_connection_stays_up_while_the_server_answers_pings() {
+    // axum answers pings while the handler keeps reading.
+    let ws_url = start_raw_ws_server(|mut socket| async move {
+        let _ = socket.recv().await;
+        socket
+            .send(AxumWsMsg::Text(r#"{"type":"auth_ok"}"#.into()))
+            .await
+            .unwrap();
+        while socket.recv().await.is_some() {}
+    })
+    .await;
+
+    let still_running = tokio::time::timeout(
+        Duration::from_secs(3),
+        run_connection(&heartbeat_config(ws_url)),
+    )
+    .await;
+    assert!(
+        still_running.is_err(),
+        "the client ended the connection: {still_running:?}"
+    );
+}
+
+#[tokio::test]
+async fn heartbeat_continues_while_a_slow_request_is_in_flight() {
+    let ws_url = start_outpunch_server("test-secret").await;
+    let local_app = Router::new().route(
+        "/slow",
+        get(|| async {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            "slow"
+        }),
+    );
+    let local_url = start_local_server(local_app).await;
+    let config = ClientConfig {
+        server_url: ws_url.clone(),
+        secret: "test-secret".to_string(),
+        service: "my-service".to_string(),
+        forward_to: local_url,
+        ping_interval: Duration::from_millis(200),
+        idle_timeout: Duration::from_secs(1),
+        ..ClientConfig::default()
+    };
+    let conn_handle = tokio::spawn(async move { run_connection(&config).await });
+
+    // The request outlasts the idle timeout three times over; pongs keep the client connected.
+    let http_url = ws_url.replace("ws://", "http://").replace("/ws", "");
+    wait_for_tunnel(&format!("{http_url}/tunnel/my-service/missing")).await;
+    let resp = reqwest::get(format!("{http_url}/tunnel/my-service/slow"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "slow");
+    assert!(
+        !conn_handle.is_finished(),
+        "the client dropped the connection"
+    );
     conn_handle.abort();
 }

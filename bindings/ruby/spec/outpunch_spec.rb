@@ -53,6 +53,15 @@ RSpec.describe Outpunch::ClientConfig do
       Outpunch::ClientConfig.new("wss://example.com/ws", "secret", "svc", nil, nil, nil)
     end
 
+    it "defaults the heartbeat settings and allows setting them" do
+      expect(config.ping_interval).to eq(30.0)
+      expect(config.idle_timeout).to eq(75.0)
+      config.ping_interval = 10.0
+      config.idle_timeout = 25.0
+      expect(config.ping_interval).to eq(10.0)
+      expect(config.idle_timeout).to eq(25.0)
+    end
+
     it "allows setting server_url" do
       config.server_url = "wss://other.com/ws"
       expect(config.server_url).to eq("wss://other.com/ws")

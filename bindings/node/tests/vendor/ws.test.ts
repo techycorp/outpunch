@@ -56,3 +56,20 @@ test('ws send callback must fire for every frame to a reading peer (control)', a
     close();
   }
 }, 10000);
+
+// Claim:    a ws server emits 'ping' for each client ping and answers it with a pong carrying the same payload
+// Fails if: ws answered pings without emitting 'ping' (the adapter could not count them as signs of
+//           life), or sent no pong (the client's idle check would drop a healthy connection)
+// Control:  both the server's 'ping' event and the client's 'pong' event carry the payload
+test('ws server must emit ping events and answer pings with pongs', async () => {
+  const { server, client, close } = await pair();
+  try {
+    const seen = new Promise<string>((r) => server.once('ping', (data: Buffer) => r(data.toString())));
+    const pong = new Promise<string>((r) => client.once('pong', (data: Buffer) => r(data.toString())));
+    client.ping('p');
+    expect(await seen).toBe('p');
+    expect(await pong).toBe('p');
+  } finally {
+    close();
+  }
+}, 10000);

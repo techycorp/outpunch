@@ -3,7 +3,8 @@ use std::panic;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use magnus::{Error, ExceptionClass, RHash, RModule, RString, Ruby, prelude::*, wrap};
+use magnus::scan_args::scan_args;
+use magnus::{Error, ExceptionClass, RHash, RModule, RString, Ruby, Value, prelude::*, wrap};
 use outpunch_core::protocol::{IncomingRequest, TunnelResponse};
 use outpunch_core::server::{
     Connection as CoreConnection, OutpunchServer, ServerConfig, TunnelError,
@@ -66,16 +67,24 @@ pub struct Server {
 }
 
 impl Server {
-    fn new(secret: String, timeout: f64, max_body_size: Option<usize>) -> Self {
+    /// `Server.new(secret, timeout, max_body_size, client_idle_timeout = nil)`; nil means the
+    /// default for that setting.
+    fn new(args: &[Value]) -> Result<Self, Error> {
+        let args = scan_args::<(String, f64, Option<usize>), (Option<f64>,), (), (), (), ()>(args)?;
+        let (secret, timeout, max_body_size) = args.required;
+        let (client_idle_timeout,) = args.optional;
         let defaults = ServerConfig::default();
-        Self {
+        Ok(Self {
             inner: OutpunchServer::new(ServerConfig {
                 secret,
                 timeout: Duration::from_secs_f64(timeout),
                 max_body_size: max_body_size.unwrap_or(defaults.max_body_size),
+                client_idle_timeout: client_idle_timeout
+                    .map(Duration::from_secs_f64)
+                    .unwrap_or(defaults.client_idle_timeout),
                 ..defaults
             }),
-        }
+        })
     }
 
     fn create_connection(&self) -> Connection {
@@ -281,6 +290,11 @@ impl Connection {
         self.inner.close();
     }
 
+    /// Record that the client is alive; call it for every WebSocket ping frame.
+    fn heartbeat(&self) {
+        self.inner.heartbeat();
+    }
+
     /// Run the connection lifecycle (auth, relay, cleanup). Blocks until the connection ends.
     /// An exception raised into this thread (Thread#raise, Thread#kill, Timeout) closes the
     /// connection and then propagates.
@@ -305,7 +319,7 @@ pub fn init(ruby: &Ruby, module: &RModule) -> Result<(), Error> {
     module.define_error("TunnelTimeoutError", timeout_error)?;
 
     let server = module.define_class("Server", ruby.class_object())?;
-    server.define_singleton_method("new", magnus::function!(Server::new, 3))?;
+    server.define_singleton_method("new", magnus::function!(Server::new, -1))?;
     server.define_method(
         "create_connection",
         magnus::method!(Server::create_connection, 0),
@@ -320,6 +334,7 @@ pub fn init(ruby: &Ruby, module: &RModule) -> Result<(), Error> {
         magnus::method!(Connection::next_outgoing, 0),
     )?;
     connection.define_method("close", magnus::method!(Connection::close, 0))?;
+    connection.define_method("heartbeat", magnus::method!(Connection::heartbeat, 0))?;
     connection.define_method("run", magnus::method!(Connection::run, 0))?;
 
     Ok(())

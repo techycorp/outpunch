@@ -54,6 +54,7 @@ reports the first event the model cannot take. Wrong models are rejected: a mode
 | `RunDrop.cfg`, `RunDropLive.cfg` | pass | F3 fix: a dropped `run()` still cleans up its pending entries and unregisters |
 | `RunDropOther.cfg` | pass | With `run()` drops and drain deaths, the other properties still hold |
 | `DrainDeath.cfg` | pass | F4 fix: a dead drain task closes its connection, which then unregisters |
+| `Idle.cfg` | pass; `NeverIdleEvicted` reachable | F8 fix: a client gone silent on a half-open socket is evicted (`SilentUnregistered`), with the safety properties |
 
 Exhaustive 3 connections with 2 requests did not finish (over 17M states and growing), hence the split.
 
@@ -124,6 +125,8 @@ validation, but no property states it.
 | R27 no late writes | `NoLateWrite` (mutation: no `is_pending` check) |
 | R28 socket lifetime | `WriteTaskEnds` (mutation: the write task is not aborted) |
 | R29 stalled client disconnected | `StalledPeerUnregistered` (mutation: no write timeout) |
+| R30 silent client evicted | `SilentUnregistered` in `Idle.cfg` (mutation: no eviction); trace-validated (`silent_client_is_evicted_after_the_idle_timeout`). "A pinging client is never evicted" is a timing assumption, tested in Rust and the adapters |
+| R31 client reconnects on a silent server | Client code, not modeled; tested in `crates/outpunch-client` |
 
 ## Keeping models in step with the code
 

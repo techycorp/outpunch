@@ -16,6 +16,8 @@ spec/Tunnel.tla spec/RunDrop.cfg       pass
 spec/Tunnel.tla spec/RunDropLive.cfg   pass
 spec/Tunnel.tla spec/RunDropOther.cfg  pass
 spec/Tunnel.tla spec/DrainDeath.cfg    pass
+spec/Tunnel.tla spec/Idle.cfg          pass
+spec/Tunnel.tla spec/Idle.cfg          reach:NeverIdleEvicted
 spec/RubyGvl.tla spec/RubyGvl.cfg              pass
 spec/RubyGvl.tla spec/RubyGvlRecvSafety.cfg    pass
 spec/RubyGvl.tla spec/RubyGvlRecvOne.cfg       pass

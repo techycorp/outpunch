@@ -136,6 +136,10 @@ vendor = "ws"
 behaviour = "ws.send calls its callback only once the frame has been written to the socket, so it is held back while the peer is not reading"
 verified_by = "bindings/node/tests/vendor/ws.test.ts::ws send callback must wait while the peer is not reading"
 
+[[fake.claim]]
+behaviour = "a ws server emits 'ping' for each client ping and answers it with a pong carrying the same payload"
+verified_by = "bindings/node/tests/vendor/ws.test.ts::ws server must emit ping events and answer pings with pongs"
+
 # Not a fake: production code that relies on a vendor behaviour.
 [[fake]]
 path = "adapters/ruby/rack/lib/outpunch/rack/connection.rb"
@@ -148,3 +152,32 @@ verified_by = "adapters/ruby/rack/spec/vendor/ruby_io_spec.rb::returns :wait_wri
 [[fake.claim]]
 behaviour = "wait_writable with a timeout returns nil after about that long when the socket stays unwritable"
 verified_by = "adapters/ruby/rack/spec/vendor/ruby_io_spec.rb::returns nil from wait_writable after its timeout when the socket stays full"
+
+[[fake.claim]]
+behaviour = "a server-side websocket-driver emits :ping for a client ping and writes a pong frame with the same payload"
+verified_by = "adapters/ruby/rack/spec/vendor/websocket_driver_spec.rb::emits :ping for a client ping and answers it with a pong"
+
+# Not a fake: production code that relies on a vendor behaviour (the heartbeat, R30 and R31).
+[[fake]]
+path = "crates/outpunch-axum/src/lib.rs"
+vendor = "axum"
+
+[[fake.claim]]
+behaviour = "axum delivers a client's WebSocket ping frame to the handler as Message::Ping"
+verified_by = "crates/outpunch-axum/tests/vendor_axum.rs::axum_must_deliver_client_ping_frames_to_the_handler"
+
+[[fake]]
+path = "crates/outpunch-client/src/lib.rs"
+vendor = "tokio-tungstenite"
+
+[[fake.claim]]
+behaviour = "while an axum handler is reading, a client ping is answered with a pong that the tokio-tungstenite client yields as Message::Pong"
+verified_by = "crates/outpunch-axum/tests/vendor_axum.rs::axum_must_answer_a_client_ping_with_a_pong_the_client_sees"
+
+[[fake]]
+path = "spec/Tunnel.tla"
+vendor = "heroku"
+
+[[fake.claim]]
+behaviour = "Heroku's router passes WebSocket ping and pong frames between the client and the dyno"
+unverified = "needs a deployed Heroku app; check after deploying by leaving the tunnel idle past client_idle_timeout and confirming it stays registered"

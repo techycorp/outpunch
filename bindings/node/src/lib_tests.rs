@@ -7,6 +7,7 @@ fn server_config_defaults() {
         secret: "test".to_string(),
         timeout_ms: None,
         max_body_size: None,
+        client_idle_timeout_ms: None,
     };
     assert_eq!(config.secret, "test");
     assert!(config.timeout_ms.is_none());

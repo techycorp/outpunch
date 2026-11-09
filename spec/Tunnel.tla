@@ -34,6 +34,7 @@ CONSTANTS
     Reconnects, \* TRUE: a finished connection id may be reused by a new connection
     RunDrops,   \* TRUE: the run() future may be dropped at an await (F3)
     DrainDies,  \* TRUE: the outgoing drain task may die, e.g. a panicking callback (F4)
+    Silences,   \* TRUE: a client may go silent forever (dead peer, half-open socket; R30)
     None        \* model value
 
 Tokens == {"right", "wrong"}
@@ -72,6 +73,7 @@ TypeOK ==
         /\ conn[c].old \in Conns \cup {None}
         /\ conn[c].pushed \in 0..MaxMsgs
         /\ conn[c].drain \in BOOLEAN
+        /\ conn[c].silent \in BOOLEAN
     /\ \A r \in Reqs :
         /\ caller[r].st \in CallerStates
         /\ caller[r].conn \in Conns \cup {None}
@@ -92,7 +94,8 @@ Init ==
     /\ pending = [r \in Reqs |-> None]
     /\ conn = [c \in Conns |->
                 [phase |-> "idle", open |-> FALSE, inbox |-> <<>>,
-                 svc |-> None, old |-> None, pushed |-> 0, drain |-> TRUE]]
+                 svc |-> None, old |-> None, pushed |-> 0, drain |-> TRUE,
+                 silent |-> FALSE]]
     /\ caller = [r \in Reqs |-> [st |-> "idle", conn |-> None, res |-> "none", from |-> None,
                                   spurious |-> FALSE, late504 |-> FALSE,
                                   beatValue |-> FALSE]]
@@ -127,10 +130,22 @@ RunStart(c) ==
 \* push_message(): only reaches run() while incoming_tx is present.
 Push(c, m) ==
     /\ conn[c].open
+    /\ ~conn[c].silent
     /\ conn[c].phase \notin {"idle", "done", "dropped"}
     /\ conn[c].pushed < MaxMsgs
     /\ m.type = "resp" => m.req \in delivered
     /\ conn' = [conn EXCEPT ![c].inbox = Append(@, m), ![c].pushed = @ + 1]
+    /\ UNCHANGED <<services, pending, caller, oneshot, delivered, authed, lastReg>>
+
+\* The client goes silent forever without closing: it sends nothing more, not even a
+\* WebSocket ping, and its socket stays open (a dead peer behind a half-open TCP
+\* connection). A live client is never silent for client_idle_timeout: it pings more
+\* often than that (timing assumption; tested in Rust, not modeled).
+GoSilent(c) ==
+    /\ Silences
+    /\ conn[c].phase \notin {"idle", "done", "dropped"}
+    /\ ~conn[c].silent
+    /\ conn' = [conn EXCEPT ![c].silent = TRUE]
     /\ UNCHANGED <<services, pending, caller, oneshot, delivered, authed, lastReg>>
 
 \* close(), or the socket dies: incoming_tx is taken.
@@ -150,7 +165,8 @@ Reconnect(c) ==
     /\ \A x \in Conns : ~(conn[x].phase = "kick" /\ conn[x].old = c)
     /\ \A r \in Reqs : pending[r] /= c /\ (caller[r].conn = c => caller[r].st \in {"idle", "done", "cancelled"})
     /\ conn' = [conn EXCEPT ![c] = [phase |-> "idle", open |-> FALSE, inbox |-> <<>>,
-                                    svc |-> None, old |-> None, pushed |-> 0, drain |-> TRUE]]
+                                    svc |-> None, old |-> None, pushed |-> 0, drain |-> TRUE,
+                 silent |-> FALSE]]
     /\ authed' = [authed EXCEPT ![c] = None]
     /\ lastReg' = [s \in Services |-> IF lastReg[s] = c THEN None ELSE lastReg[s]]
     /\ UNCHANGED <<services, pending, caller, oneshot, delivered>>
@@ -212,6 +228,14 @@ Relay(c) ==
         ELSE UNCHANGED <<pending, oneshot>>
     /\ conn' = [conn EXCEPT ![c].inbox = Tail(@)]
     /\ UNCHANGED <<services, caller, delivered, authed, lastReg>>
+
+\* The relay loop's idle timer fires: the client has been silent for
+\* client_idle_timeout, so run() stops relaying and cleans up (R30).
+IdleEvict(c) ==
+    /\ conn[c].phase = "relay"
+    /\ conn[c].silent
+    /\ conn' = [conn EXCEPT ![c].phase = "cleanup"]
+    /\ UNCHANGED <<services, pending, caller, oneshot, delivered, authed, lastReg>>
 
 \* recv() returns None: channel closed and drained.
 RelayEnd(c) ==
@@ -337,7 +361,7 @@ GuardDrop(r) ==
 (***************************************************************************)
 
 Environment ==
-    \/ \E c \in Conns : Connect(c) \/ RunStart(c) \/ Close(c) \/ Reconnect(c) \/ RunDropped(c) \/ DrainDeath(c)
+    \/ \E c \in Conns : Connect(c) \/ RunStart(c) \/ Close(c) \/ Reconnect(c) \/ RunDropped(c) \/ DrainDeath(c) \/ GoSilent(c)
     \/ \E c \in Conns, m \in Msgs : Push(c, m)
     \/ \E r \in Reqs, s \in Services : Start(r, s)
     \/ \E r \in Reqs : Send(r) \/ Cancel(r)
@@ -345,7 +369,7 @@ Environment ==
 Server ==
     \/ \E c \in Conns :
         Auth(c) \/ AuthTimeout(c) \/ Register(c) \/ Kick(c)
-            \/ Relay(c) \/ RelayEnd(c) \/ Cleanup(c) \/ DrainClose(c)
+            \/ Relay(c) \/ RelayEnd(c) \/ Cleanup(c) \/ DrainClose(c) \/ IdleEvict(c)
     \/ \E r \in Reqs : Receive(r) \/ Timeout(r) \/ Remove(r) \/ SendFail(r) \/ GuardDrop(r)
 
 Next == Environment \/ Server
@@ -355,7 +379,7 @@ Fairness ==
     /\ \A c \in Conns :
         /\ WF_vars(Auth(c)) /\ WF_vars(AuthTimeout(c)) /\ WF_vars(Register(c))
         /\ WF_vars(Kick(c)) /\ WF_vars(Relay(c)) /\ WF_vars(RelayEnd(c))
-        /\ WF_vars(Cleanup(c)) /\ WF_vars(DrainClose(c))
+        /\ WF_vars(Cleanup(c)) /\ WF_vars(DrainClose(c)) /\ WF_vars(IdleEvict(c))
     /\ \A r \in Reqs :
         /\ WF_vars(Receive(r)) /\ WF_vars(Timeout(r)) /\ WF_vars(Remove(r))
         /\ WF_vars(SendFail(r)) /\ WF_vars(GuardDrop(r))
@@ -449,6 +473,11 @@ DeadUnregistered ==
     \A s \in Services, c \in Conns :
         (services[s] = c /\ (Finished(c) \/ ~conn[c].drain)) ~> services[s] /= c
 
+\* R30: a service does not stay routed to a client that has gone silent.
+SilentUnregistered ==
+    \A s \in Services, c \in Conns :
+        (services[s] = c /\ conn[c].silent) ~> services[s] /= c
+
 (***************************************************************************)
 (* Flapping (spec/REQUIREMENTS.md, "Known consequence"): two live clients   *)
 (* for the same service that keep reconnecting. Checked with Flapping.cfg,  *)
@@ -494,5 +523,7 @@ NeverReplaced == \A c \in Conns : conn[c].old = None
 NeverCancelled == \A r \in Reqs : caller[r].st /= "cancelled"
 NeverDroppedWhilePending == \A r \in Reqs : ~(caller[r].st = "dropping" /\ pending[r] /= None)
 NeverNotConnected == \A r \in Reqs : ~(caller[r].res = "502" /\ caller[r].conn = None)
+\* Only IdleEvict finishes an authenticated connection whose socket is still open (without RunDrops).
+NeverIdleEvicted == ~\E c \in Conns : conn[c].silent /\ authed[c] /= None /\ conn[c].phase = "done" /\ conn[c].open
 
 =============================================================================

@@ -10,11 +10,13 @@ module Outpunch
     class Server
       HOP_BY_HOP = %w[HOST CONNECTION UPGRADE].freeze
 
-      def initialize(secret:, timeout: 25)
+      # client_idle_timeout: seconds a connected client may send nothing (not even a WebSocket
+      # ping) before it is treated as gone; clients ping every 30 s by default.
+      def initialize(secret:, timeout: 25, client_idle_timeout: 90)
         raise ArgumentError, "outpunch secret must be set" if secret.nil? || secret.to_s.empty?
 
         @timeout = timeout.to_f
-        @native = Outpunch::Server.new(secret.to_s, @timeout, nil)
+        @native = Outpunch::Server.new(secret.to_s, @timeout, nil, client_idle_timeout.to_f)
       end
 
       # A socket write that takes longer than the request timeout closes the connection.

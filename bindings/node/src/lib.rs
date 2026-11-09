@@ -12,6 +12,9 @@ pub struct ServerConfig {
     pub secret: String,
     pub timeout_ms: Option<u32>,
     pub max_body_size: Option<u32>,
+    /// How long a connected client may send nothing (not even a WebSocket ping) before it is
+    /// treated as gone. Default 90000.
+    pub client_idle_timeout_ms: Option<u32>,
 }
 
 #[napi]
@@ -27,6 +30,9 @@ impl OutpunchServer {
             secret: config.secret,
             timeout: Duration::from_millis(config.timeout_ms.unwrap_or(25000) as u64),
             max_body_size: config.max_body_size.unwrap_or(10 * 1024 * 1024) as usize,
+            client_idle_timeout: Duration::from_millis(
+                config.client_idle_timeout_ms.unwrap_or(90_000) as u64,
+            ),
             ..Default::default()
         });
         Self { inner }
@@ -109,6 +115,12 @@ impl OutpunchConnection {
     #[napi]
     pub fn close(&self) {
         self.inner.close();
+    }
+
+    /// Record that the client is alive; call it for every WebSocket ping frame.
+    #[napi]
+    pub fn heartbeat(&self) {
+        self.inner.heartbeat();
     }
 
     #[napi]

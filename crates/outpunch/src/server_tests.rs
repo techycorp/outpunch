@@ -917,9 +917,13 @@ async fn dead_callback_unregisters_service() {
     let _ = rx.recv().await.unwrap();
 
     let _ = server.try_handle_request(plain_request("my-service")).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    assert!(!server.is_connected("my-service").await);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while server.is_connected("my-service").await {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the service is still registered after the callback panicked");
     assert_eq!(
         server
             .try_handle_request(plain_request("my-service"))
@@ -1070,4 +1074,77 @@ fn weak_connection_does_not_keep_the_connection_alive() {
     assert!(weak.upgrade().is_some());
     drop(connection);
     assert!(weak.upgrade().is_none());
+}
+
+fn idle_config(idle: Duration) -> ServerConfig {
+    ServerConfig {
+        secret: "test-secret".to_string(),
+        timeout: Duration::from_secs(600),
+        client_idle_timeout: idle,
+        ..ServerConfig::default()
+    }
+}
+
+/// Authenticates a connection for "my-service" and returns it with its outgoing messages.
+async fn authed(server: &OutpunchServer) -> (Connection, mpsc::Receiver<String>) {
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
+    tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection
+        .push_message(auth_json("test-secret", "my-service"))
+        .await;
+    assert!(outgoing_rx.recv().await.unwrap().contains("auth_ok"));
+    (connection, outgoing_rx)
+}
+
+// R30 in spec/REQUIREMENTS.md: a client that sends nothing, not even a WebSocket ping, for
+// client_idle_timeout is treated as gone. Its in-flight requests fail fast with 502 rather than
+// waiting for the request timeout.
+#[tokio::test(start_paused = true)]
+async fn silent_client_is_evicted_after_the_idle_timeout() {
+    let server = OutpunchServer::new(idle_config(Duration::from_secs(90)));
+    let (_connection, mut outgoing_rx) = authed(&server).await;
+
+    let request = tokio::spawn({
+        let server = server.clone();
+        async move { server.try_handle_request(plain_request("my-service")).await }
+    });
+    let _ = next_request_id(&mut outgoing_rx).await;
+
+    tokio::time::sleep(Duration::from_secs(89)).await;
+    assert!(server.is_connected("my-service").await);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!server.is_connected("my-service").await);
+    assert_eq!(
+        request.await.unwrap().unwrap_err(),
+        TunnelError::Disconnected
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn heartbeats_keep_a_quiet_client_registered() {
+    let server = OutpunchServer::new(idle_config(Duration::from_secs(90)));
+    let (connection, _outgoing_rx) = authed(&server).await;
+
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        connection.heartbeat();
+    }
+    assert!(server.is_connected("my-service").await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn messages_keep_a_client_registered() {
+    let server = OutpunchServer::new(idle_config(Duration::from_secs(90)));
+    let (connection, _outgoing_rx) = authed(&server).await;
+
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        connection.push_message("junk".to_string()).await;
+    }
+    assert!(server.is_connected("my-service").await);
 }

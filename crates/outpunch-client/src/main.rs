@@ -33,6 +33,14 @@ struct Args {
     /// Seconds to wait before reconnecting
     #[arg(long, env = "OUTPUNCH_RECONNECT_DELAY", default_value = "5")]
     reconnect_delay: u64,
+
+    /// Seconds between WebSocket pings to the server
+    #[arg(long, env = "OUTPUNCH_PING_INTERVAL", default_value = "30")]
+    ping_interval: u64,
+
+    /// Seconds without any message from the server before reconnecting
+    #[arg(long, env = "OUTPUNCH_IDLE_TIMEOUT", default_value = "75")]
+    idle_timeout: u64,
 }
 
 #[tokio::main]
@@ -50,6 +58,8 @@ async fn main() {
         service: args.service,
         forward_to: args.forward_to,
         reconnect_delay: Duration::from_secs(args.reconnect_delay),
+        ping_interval: Duration::from_secs(args.ping_interval),
+        idle_timeout: Duration::from_secs(args.idle_timeout),
         ..ClientConfig::default()
     };
 

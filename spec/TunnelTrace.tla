@@ -9,11 +9,12 @@
 (* consumes the whole log: each event must be the next model step, with the *)
 (* same parameters and the same observable outcome.                         *)
 (*                                                                         *)
-(* Two model steps have no event, so they may happen silently: Cancel (a   *)
-(* dropped dispatch future is not observable until its PendingGuard runs)  *)
-(* and RunDropped (a dropped run() future, observable through the cleanup  *)
-(* its guard then runs). A dead drain task is traced as drain_death, and    *)
-(* the close its guard then performs as close.                              *)
+(* Three model steps have no event, so they may happen silently: Cancel (a *)
+(* dropped dispatch future is not observable until its PendingGuard runs), *)
+(* RunDropped (a dropped run() future, observable through the cleanup its  *)
+(* guard then runs) and GoSilent (a client that stops sending, observable  *)
+(* only through the idle eviction that follows). A dead drain task is      *)
+(* traced as drain_death, and the close its guard then performs as close.  *)
 (***************************************************************************)
 EXTENDS Tunnel
 
@@ -60,6 +61,8 @@ TGuardDrop == Ev("guard_drop") /\ GuardDrop(E.req) /\ Advance
 TCancel == \E r \in Reqs : Cancel(r) /\ UNCHANGED l
 TRunDropped == \E c \in Conns : RunDropped(c) /\ UNCHANGED l
 TDrainDeath == Ev("drain_death") /\ DrainDeath(E.conn) /\ Advance
+TGoSilent == \E c \in Conns : GoSilent(c) /\ UNCHANGED l
+TIdle == Ev("idle") /\ IdleEvict(E.conn) /\ Advance
 
 TInit == Init /\ l = 1
 
@@ -67,6 +70,7 @@ TNext ==
     \/ TCreate \/ TRun \/ TPush \/ TClose \/ TAuth \/ TAuthEnd \/ TRegister \/ TKick
     \/ TRelay \/ TRelayEnd \/ TCleanup \/ TStart \/ TSend \/ TSendFail \/ TReceive
     \/ TTimeout \/ TRemove \/ TGuardDrop \/ TCancel \/ TRunDropped \/ TDrainDeath
+    \/ TGoSilent \/ TIdle
 
 \* Violated exactly when the first Target events have been matched.
 NotReached == l <= Target

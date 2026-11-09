@@ -205,3 +205,14 @@ GuardDrop(r) ==
     /\ FALSE
     /\ write /\ held /= {} /\ peer = "stalled"
 ===
+
+## name: R30 silent client never evicted
+## spec: spec/Tunnel.tla
+## cfg: spec/Idle.cfg
+## expect: SilentUnregistered
+--- old
+    /\ conn[c].phase = "relay"
+    /\ conn[c].silent
+--- new
+    /\ FALSE
+===

@@ -10,10 +10,12 @@ require_relative "rack/middleware"
 module Outpunch
   module Rack
     class Configuration
-      attr_accessor :secret, :timeout, :base_controller, :authorize_service, :hooks, :route_prefix
+      attr_accessor :secret, :timeout, :client_idle_timeout, :base_controller, :authorize_service, :hooks,
+                    :route_prefix
 
       def initialize
         @timeout = 25
+        @client_idle_timeout = 90
         @base_controller = "ActionController::API"
         @hooks = Outpunch::Rack::Hooks
         @route_prefix = "/outpunch"
@@ -33,7 +35,8 @@ module Outpunch
       def server
         @server ||= Server.new(
           secret: configuration.secret,
-          timeout: configuration.timeout
+          timeout: configuration.timeout,
+          client_idle_timeout: configuration.client_idle_timeout
         )
       end
 

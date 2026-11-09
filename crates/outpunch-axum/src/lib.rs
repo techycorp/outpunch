@@ -138,6 +138,8 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
                     conn_for_read.push_message(text.to_string()).await;
                 }
                 WsMessage::Close(_) => break,
+                // A client ping (answered by the WebSocket library) counts as a sign of life.
+                WsMessage::Ping(_) | WsMessage::Pong(_) => conn_for_read.heartbeat(),
                 _ => {}
             }
         }

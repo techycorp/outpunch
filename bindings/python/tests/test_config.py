@@ -6,6 +6,14 @@ def test_config_defaults():
     assert c.forward_to == "http://localhost:8080"
     assert c.reconnect_delay == 5.0
     assert c.request_timeout == 25.0
+    assert c.ping_interval == 30.0
+    assert c.idle_timeout == 75.0
+
+
+def test_config_heartbeat_settings():
+    c = ClientConfig(server_url="ws://x", secret="s", service="svc", ping_interval=10.0, idle_timeout=25.0)
+    assert c.ping_interval == 10.0
+    assert c.idle_timeout == 25.0
 
 
 def test_config_custom_values():

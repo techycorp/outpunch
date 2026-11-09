@@ -55,9 +55,8 @@ RSpec.describe Outpunch::Rack::Connection do
 
       client.close
       expect(client.closed?).to be true
-      sleep 0.1
 
-      expect(server.connected?("svc")).to be false
+      expect(eventually { !server.connected?("svc") }).to be true
     end
 
     # F7 in spec/FINDINGS.md.
@@ -71,9 +70,34 @@ RSpec.describe Outpunch::Rack::Connection do
         body = "x" * (256 * 1024)
         requests = Array.new(100) { request_thread(server, "svc", method: "POST", body: body) }
         requests.each(&:join)
-        sleep 1
 
-        expect(server.connected?("svc")).to be false
+        expect(eventually { !server.connected?("svc") }).to be true
+      ensure
+        socket&.close
+      end
+    end
+
+    # R30 in spec/FINDINGS.md / spec/REQUIREMENTS.md.
+    context "with a short client idle timeout" do
+      let(:server) { Outpunch::Rack::Server.new(secret: secret, timeout: 5, client_idle_timeout: 0.5) }
+
+      it "evicts a client that sends nothing, not even a ping" do
+        socket = stalled_client(port, service: "svc", token: secret)
+        expect(server.connected?("svc")).to be true
+
+        expect(eventually { !server.connected?("svc") }).to be true
+      ensure
+        socket&.close
+      end
+
+      it "keeps a client that only sends pings" do
+        socket = stalled_client(port, service: "svc", token: secret)
+
+        20.times do
+          send_ping(socket)
+          sleep 0.1
+        end
+        expect(server.connected?("svc")).to be true
       ensure
         socket&.close
       end

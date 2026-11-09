@@ -593,12 +593,11 @@ test('slow-reading client does not lose requests', async () => {
 
   await new Promise((r) => setTimeout(r, 1000));
   ws.resume();
-  await new Promise((r) => setTimeout(r, 3000));
 
-  expect(received).toBe(requests);
+  expect(await eventually(10000, async () => received === requests)).toBe(true);
   controller.abort();
   ws.close();
-}, 10000);
+}, 15000);
 
 // F5 in spec/FINDINGS.md. The client keeps reading, slowly: each write finishes well within the
 // request timeout (so F7's write timeout never fires), but requests queued behind the others time
@@ -644,12 +643,10 @@ test('client that stops reading must be disconnected after a write waits past th
     ),
   );
   expect(statuses.every((s) => s === 504 || s === 502)).toBe(true);
-  await new Promise((r) => setTimeout(r, 1000));
-
-  const started = Date.now();
-  const res = await fetch(`http://127.0.0.1:${port}/tunnel/svc/x`);
-  expect(res.status).toBe(502);
-  expect(Date.now() - started).toBeLessThan(400);
+  // Without the write timeout the service stays registered and requests time out (504).
+  const unregistered = await eventually(5000, async () =>
+    (await fetch(`http://127.0.0.1:${port}/tunnel/svc/x`)).status === 502);
+  expect(unregistered).toBe(true);
   ws.terminate();
 }, 15000);
 
@@ -665,3 +662,45 @@ test('server closes the socket of a replaced connection', async () => {
   ).resolves.toBeUndefined();
   newWs.close();
 });
+
+/** Polls until check() holds or limitMs passes; returns whether it held. */
+async function eventually(limitMs: number, check: () => Promise<boolean>): Promise<boolean> {
+  const deadline = Date.now() + limitMs;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+
+// R30 in spec/REQUIREMENTS.md.
+test('silent client must be evicted after the idle timeout', async () => {
+  const port = await startServer({ secret: 's', timeoutMs: 5000, clientIdleTimeoutMs: 500 });
+  const ws = await connectAndAuth(port, 's', 'svc');
+
+  const evicted = await eventually(5000, async () =>
+    (await fetch(`http://127.0.0.1:${port}/tunnel/svc/x`)).status === 502);
+  expect(evicted).toBe(true);
+  ws.terminate();
+}, 10000);
+
+test('client that only pings must stay registered', async () => {
+  const port = await startServer({ secret: 's', timeoutMs: 5000, clientIdleTimeoutMs: 500 });
+  const ws = await connectAndAuth(port, 's', 'svc');
+
+  for (let i = 0; i < 20; i++) {
+    ws.ping();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const delivered = new Promise<boolean>((resolve) => {
+    ws.on('message', (data) => {
+      if (JSON.parse(data.toString()).type === 'request') resolve(true);
+    });
+    setTimeout(() => resolve(false), 5000);
+  });
+  const controller = new AbortController();
+  fetch(`http://127.0.0.1:${port}/tunnel/svc/x`, { signal: controller.signal }).catch(() => {});
+  expect(await delivered).toBe(true);
+  controller.abort();
+  ws.terminate();
+}, 10000);

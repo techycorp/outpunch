@@ -13,6 +13,9 @@ module Outpunch
         @native = native
         @write_timeout = write_timeout
         @write_mutex = Mutex.new
+        # Serializes socket writes: the reader thread writes pongs while the writer thread may be
+        # partway through a frame (write_within can take several write_nonblock calls).
+        @io_mutex = Mutex.new
         @io = nil
         @driver = nil
         @env = nil
@@ -24,6 +27,9 @@ module Outpunch
         @io = io
         @driver = WebSocket::Driver.rack(self)
         @driver.on(:message) { |event| @native.push_message(event.data) }
+        # A client ping (the driver answers it) counts as a sign of life (R30).
+        @driver.on(:ping)    { @native.heartbeat }
+        @driver.on(:pong)    { @native.heartbeat }
         @driver.on(:close)   { @native.close }
         @driver.on(:error)   { |e| log_error(e.message) }
         @driver.start
@@ -48,9 +54,11 @@ module Outpunch
       # so the service is unregistered instead of queueing requests for it (F7 in
       # spec/FINDINGS.md).
       def write(data)
-        return @io.write(data) unless @write_timeout && @io.respond_to?(:write_nonblock)
+        @io_mutex.synchronize do
+          next @io.write(data) unless @write_timeout && @io.respond_to?(:write_nonblock)
 
-        write_within(data, monotonic_now + @write_timeout) || stop_stalled
+          write_within(data, monotonic_now + @write_timeout) || stop_stalled
+        end
       rescue IOError, Errno::EPIPE, Errno::ECONNRESET
         nil
       end

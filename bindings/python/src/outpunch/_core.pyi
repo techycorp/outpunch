@@ -7,6 +7,8 @@ class ClientConfig:
     forward_to: str
     reconnect_delay: float
     request_timeout: float
+    ping_interval: float
+    idle_timeout: float
 
     def __init__(
         self,
@@ -16,6 +18,8 @@ class ClientConfig:
         forward_to: str = "http://localhost:8080",
         reconnect_delay: float = 5.0,
         request_timeout: float = 25.0,
+        ping_interval: float = 30.0,
+        idle_timeout: float = 75.0,
     ) -> None: ...
     def __repr__(self) -> str: ...
 

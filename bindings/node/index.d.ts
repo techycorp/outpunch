@@ -4,6 +4,8 @@ export declare class OutpunchConnection {
   pushMessage(text: string): Promise<void>
   onMessage(callback: (err: null, msg: string) => void): void
   close(): void
+  /** Record that the client is alive; call it for every WebSocket ping frame. */
+  heartbeat(): void
   run(): Promise<void>
 }
 
@@ -28,6 +30,11 @@ export interface ServerConfig {
   secret: string
   timeoutMs?: number
   maxBodySize?: number
+  /**
+   * How long a connected client may send nothing (not even a WebSocket ping) before it is
+   * treated as gone. Default 90000.
+   */
+  clientIdleTimeoutMs?: number
 }
 
 export interface TunnelResponse {

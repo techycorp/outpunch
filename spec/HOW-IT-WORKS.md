@@ -75,7 +75,7 @@ average: two clients doing the same things in a different order often end in the
 | `AxumStale.cfg` | same | 199 when it stopped | 456 | 7 | 1 s | violated (F7) |
 | `RubyGvl.cfg` | 2 Ruby threads (push, request) | 31,034 | 101,407 | 22 | 3 s | pass |
 
-The full manifest (`just tla-all`, 53 checks across 4 models) took 48 minutes before the F3/F4 fixes. Since
+The full manifest (`just tla-all`, 55 checks across 4 models) took 48 minutes before the F3/F4 fixes. Since
 then the configs that used to stop at their first violation explore everything: `RunDropOther.cfg` alone
 takes about 3 hours, and the whole manifest about 5. The checks that fail keep TLC's output in
 `target/tlc/logs/`.
@@ -155,11 +155,11 @@ Several configs in `spec/models.txt` are expected to fail, and `check-all` treat
 
 ## Mutation checks: do the properties catch real bugs?
 
-`just tla-mutants` plants 18 known bugs into a copy of the model, one at a time: 14 in `Tunnel.tla`,
-3 in `AxumBridge.tla` and 1 in `RubyGvl.tla`. Each fix F1-F7 has one that undoes it; the others are
+`just tla-mutants` plants 19 known bugs into a copy of the model, one at a time: 15 in `Tunnel.tla`,
+3 in `AxumBridge.tla` and 1 in `RubyGvl.tla`. Each fix F1-F8 has one that undoes it; the others are
 classic mistakes (accept any token, forget to close a replaced connection, drop the conn_id check in
 cleanup, let the timer beat an arrived response, ...). It checks that the property meant to catch each
-one fails. All 18 are caught. This is how the adversarial review's point "the auth check passes for any token" was
+one fails. All 19 are caught. This is how the adversarial review's point "the auth check passes for any token" was
 fixed and stays fixed: that mutant used to survive.
 
 ## Trace validation: is the model the code?
@@ -169,12 +169,13 @@ Everything above checks the model. Trace validation checks that the model matche
 1. The core, built with the `trace` feature, writes one line per model step as it runs, e.g.
    `{"ev": "start", "req": "...", "svc": "my-service", "conn": 1}` or
    `{"ev": "cleanup", "conn": 1, "unregistered": true, "failed": ["..."]}`.
-2. `spec/trace/check_traces.py` runs 18 of the core's unit tests that way, then turns each trace (1 to 25
+2. `spec/trace/check_traces.py` runs 19 of the core's unit tests that way, then turns each trace (1 to 25
    events) into a TLA+ sequence.
 3. TLC searches for a behavior of the model that takes exactly those steps, in that order, with the same
    effects. If it finds none, the script bisects to the first event the model cannot take.
 
-All 18 traces are accepted, including a dropped `run()` (F3) and a panicking callback (F4). To show the check has teeth, two wrong models were tried and rejected: one
+All 19 traces are accepted, including a dropped `run()` (F3), a panicking callback (F4) and an idle
+eviction (F8). To show the check has teeth, two wrong models were tried and rejected: one
 that forbids pushing messages before `run()` starts (which the API allows, and three tests do), and one
 whose replacement step does not close the old connection.
 
@@ -208,6 +209,7 @@ That covers interleavings no test would ever hit by chance. It does not mean:
 | F5 | Adapters write requests to a slow client after their callers got 504 | fixed |
 | F6 | A peer that never reads keeps axum's write task and socket alive | fixed |
 | F7 | A connected client that stops reading makes server memory grow without limit | fixed (bounded by the request timeout) |
+| F8 | A half-open connection goes unnoticed for about 15 minutes (production, 2026-10-24) | fixed |
 
 Plus three design issues in the not-yet-built multi-client design, in
 [notes/multi-client.md](notes/multi-client.md). Details, evidence and fix options for each are in

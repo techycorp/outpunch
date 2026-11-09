@@ -18,6 +18,10 @@ struct ClientConfig {
     reconnect_delay: f64,
     #[pyo3(get, set)]
     request_timeout: f64,
+    #[pyo3(get, set)]
+    ping_interval: f64,
+    #[pyo3(get, set)]
+    idle_timeout: f64,
 }
 
 #[pymethods]
@@ -30,7 +34,10 @@ impl ClientConfig {
         forward_to = "http://localhost:8080".to_string(),
         reconnect_delay = 5.0,
         request_timeout = 25.0,
+        ping_interval = 30.0,
+        idle_timeout = 75.0,
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         server_url: String,
         secret: String,
@@ -38,6 +45,8 @@ impl ClientConfig {
         forward_to: String,
         reconnect_delay: f64,
         request_timeout: f64,
+        ping_interval: f64,
+        idle_timeout: f64,
     ) -> Self {
         Self {
             server_url,
@@ -46,6 +55,8 @@ impl ClientConfig {
             forward_to,
             reconnect_delay,
             request_timeout,
+            ping_interval,
+            idle_timeout,
         }
     }
 
@@ -66,6 +77,8 @@ impl ClientConfig {
             forward_to: self.forward_to.clone(),
             reconnect_delay: Duration::from_secs_f64(self.reconnect_delay),
             request_timeout: Duration::from_secs_f64(self.request_timeout),
+            ping_interval: Duration::from_secs_f64(self.ping_interval),
+            idle_timeout: Duration::from_secs_f64(self.idle_timeout),
         }
     }
 }

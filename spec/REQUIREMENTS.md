@@ -96,12 +96,21 @@ or stale. Line numbers are as of commit `2509723`.
 29. A client that stays connected but stops reading is disconnected once one write to it has waited
     longer than the request timeout, so its service is unregistered. Source: decided (F7). Holds in the
     axum, Rack/Rails and Node adapters.
+30. A client that sends nothing, not even a WebSocket ping, for `client_idle_timeout` (90 s by default)
+    is treated as gone: unregistered, its pending requests failed with 502. A client that pings more
+    often than that is never evicted. Source: decided after the 2026-10-24 outage (F8). The core does
+    the eviction; adapters report pings with `Connection::heartbeat`.
+31. A client that receives nothing from the server, not even a pong, for its `idle_timeout` (75 s by
+    default; it pings every 30 s) treats the connection as dead and reconnects. Source: decided (F8).
+    Client code, outside the models; tested in `crates/outpunch-client`.
 
 ## API contract (not modeled)
 
 - `on_message` must be called before `run()`; a callback registered later is never used, so every
   outgoing message, including `auth_ok`, is dropped.
 - `run()` may be called once; a second call panics.
+- `auth_ok` is queued only after the service is registered, so a client that has received it is already
+  routable, and it is always the first message the client gets.
 - `push_message` before `run()` is allowed and buffered; it waits once 64 messages are buffered.
 - Ruby binding: `next_outgoing` is meant for one thread per connection; see F2.
 

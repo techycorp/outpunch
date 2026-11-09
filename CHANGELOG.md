@@ -26,17 +26,29 @@
   the socket, closes the connection when a queued message has waited longer than the request timeout for
   `next_outgoing`.
 
+- **Half-open connections are noticed within about a minute and a half**, instead of when TCP gives
+  up (about 15 minutes). The client reconnects when it hears nothing from the server, not even a pong,
+  for `idle_timeout` (75 s); the server unregisters a client that sends nothing, not even a ping, for
+  `client_idle_timeout` (90 s) and fails its in-flight requests with 502. Existing clients already ping
+  every 30 s, so they stay connected. Caused two 20-minute StormSnap outages on 2026-10-24 (F8).
+- **`auth_ok` is sent only after the service is registered**, so a request made as soon as the client
+  has `auth_ok` is routed to it instead of getting 502.
+
 ### Added
 
 - **TLA+ models** in `spec/`, checked with TLC (`just tla-all`): the server core, the axum adapter's
   connection path, the Ruby binding's interrupt handling, and the planned multi-client design. The core
   model is trace-validated against 18 of the core's unit tests (`just tla-traces`) and mutation-checked
   (`just tla-mutants`). Requirements and their sources are in `spec/REQUIREMENTS.md`; open findings
-  (F1-F7, all fixed) are in `spec/FINDINGS.md`.
+  (F1-F8, all fixed) are in `spec/FINDINGS.md`.
 - **Rust: a `trace` feature on the `outpunch` crate** that writes one event per model step for trace
   validation. Off by default; compiled out entirely when off.
 - **Rust: `OutpunchServer::is_pending(&msg)`**, false for a request message whose caller has already been
   answered. Server adapters call it before writing an outgoing message. Node: `OutpunchServer#isPending`.
+- **Heartbeat settings.** Client: `ping_interval` and `idle_timeout` in `ClientConfig` (Rust, Python,
+  Ruby) and `--ping-interval` / `--idle-timeout` in the CLI. Server: `client_idle_timeout` in
+  `ServerConfig`, `clientIdleTimeoutMs` (Node), `client_idle_timeout:` (Rack/Rails), and
+  `Connection::heartbeat()` / `connection.heartbeat()` for adapters to report WebSocket pings.
 - **Rust: `OutpunchServer::request_timeout()`**, which adapters also use as the write timeout, and
   `Connection::downgrade()` / `WeakConnection`, a handle that does not keep the connection alive.
 

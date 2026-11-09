@@ -13,6 +13,8 @@ struct ClientConfigInner {
     forward_to: String,
     reconnect_delay: f64,
     request_timeout: f64,
+    ping_interval: f64,
+    idle_timeout: f64,
 }
 
 #[wrap(class = "Outpunch::ClientConfig", free_immediately, size)]
@@ -34,6 +36,8 @@ impl ClientConfig {
             forward_to: forward_to.unwrap_or_else(|| "http://localhost:8080".into()),
             reconnect_delay: reconnect_delay.unwrap_or(5.0),
             request_timeout: request_timeout.unwrap_or(25.0),
+            ping_interval: 30.0,
+            idle_timeout: 75.0,
         }))
     }
 
@@ -46,6 +50,8 @@ impl ClientConfig {
             forward_to: inner.forward_to.clone(),
             reconnect_delay: Duration::from_secs_f64(inner.reconnect_delay),
             request_timeout: Duration::from_secs_f64(inner.request_timeout),
+            ping_interval: Duration::from_secs_f64(inner.ping_interval),
+            idle_timeout: Duration::from_secs_f64(inner.idle_timeout),
         }
     }
 
@@ -87,6 +93,22 @@ impl ClientConfig {
 
     fn set_reconnect_delay(&self, v: f64) {
         self.0.lock().unwrap().reconnect_delay = v;
+    }
+
+    fn ping_interval(&self) -> f64 {
+        self.0.lock().unwrap().ping_interval
+    }
+
+    fn set_ping_interval(&self, v: f64) {
+        self.0.lock().unwrap().ping_interval = v;
+    }
+
+    fn idle_timeout(&self) -> f64 {
+        self.0.lock().unwrap().idle_timeout
+    }
+
+    fn set_idle_timeout(&self, v: f64) {
+        self.0.lock().unwrap().idle_timeout = v;
     }
 
     fn request_timeout(&self) -> f64 {
@@ -152,6 +174,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
         "request_timeout=",
         method!(ClientConfig::set_request_timeout, 1),
     )?;
+    config_class.define_method("ping_interval", method!(ClientConfig::ping_interval, 0))?;
+    config_class.define_method("ping_interval=", method!(ClientConfig::set_ping_interval, 1))?;
+    config_class.define_method("idle_timeout", method!(ClientConfig::idle_timeout, 0))?;
+    config_class.define_method("idle_timeout=", method!(ClientConfig::set_idle_timeout, 1))?;
     config_class.define_method("inspect", method!(ClientConfig::inspect, 0))?;
     config_class.define_method("to_s", method!(ClientConfig::inspect, 0))?;
 

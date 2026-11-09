@@ -9,9 +9,13 @@ fn to_rust_converts_durations() {
         "http://localhost:8080".to_string(),
         2.5,
         10.0,
+        12.0,
+        40.0,
     );
     let rust = config.to_rust();
     assert_eq!(rust.reconnect_delay, Duration::from_millis(2500));
+    assert_eq!(rust.ping_interval, Duration::from_secs(12));
+    assert_eq!(rust.idle_timeout, Duration::from_secs(40));
     assert_eq!(rust.request_timeout, Duration::from_secs(10));
 }
 
@@ -24,6 +28,8 @@ fn to_rust_copies_all_fields() {
         "http://localhost:9000".to_string(),
         5.0,
         25.0,
+        30.0,
+        75.0,
     );
     let rust = config.to_rust();
     assert_eq!(rust.server_url, "wss://example.com/ws");
@@ -41,6 +47,8 @@ fn repr_includes_key_fields() {
         "http://localhost:8080".to_string(),
         5.0,
         25.0,
+        30.0,
+        75.0,
     );
     let r = config.__repr__();
     assert!(r.contains("ws://x"));

@@ -18,6 +18,13 @@ pub struct ClientConfig {
     pub forward_to: String,
     pub reconnect_delay: Duration,
     pub request_timeout: Duration,
+    /// How often the client sends a WebSocket ping. The server counts pings as signs of
+    /// life, so this must stay well under the server's client_idle_timeout (90 s by default).
+    pub ping_interval: Duration,
+    /// How long the client waits without receiving anything (a pong or any other frame)
+    /// before it treats the connection as dead and reconnects. Must be longer than
+    /// ping_interval.
+    pub idle_timeout: Duration,
 }
 
 impl Default for ClientConfig {
@@ -29,6 +36,8 @@ impl Default for ClientConfig {
             service: String::new(),
             reconnect_delay: Duration::from_secs(5),
             request_timeout: Duration::from_secs(25),
+            ping_interval: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(75),
         }
     }
 }
@@ -58,8 +67,12 @@ pub async fn run_connection(
     authenticate(&mut ws_sink, &mut ws_stream, config).await?;
 
     let http_client = reqwest::Client::new();
-    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut ping_interval = tokio::time::interval(config.ping_interval);
     ping_interval.tick().await; // discard immediate first tick
+    // Anything from the server (a pong answering our ping, a request) proves the connection
+    // is alive. Without this, a half-open connection is only noticed when TCP gives up on
+    // the unacknowledged pings, which takes about 15 minutes on Linux.
+    let mut last_heard = tokio::time::Instant::now();
 
     // Requests are forwarded concurrently; their responses come back on this channel so
     // only this loop writes to the WebSocket.
@@ -70,9 +83,8 @@ pub async fn run_connection(
         tokio::select! {
             Some(response) = response_rx.recv() => {
                 eprintln!("[{:.8}] -> {}", response.request_id, response.status);
-                ws_sink
-                    .send(WsMessage::text(protocol::serialize_response(&response)))
-                    .await?;
+                let text = WsMessage::text(protocol::serialize_response(&response));
+                send_within(&mut ws_sink, text, config.idle_timeout).await?;
             }
             Some(_) = in_flight.join_next(), if !in_flight.is_empty() => {}
             msg = ws_stream.next() => {
@@ -80,6 +92,7 @@ pub async fn run_connection(
                     Some(Ok(m)) => m,
                     _ => break,
                 };
+                last_heard = tokio::time::Instant::now();
                 let text = match msg {
                     WsMessage::Text(t) => t,
                     WsMessage::Close(_) => break,
@@ -101,12 +114,35 @@ pub async fn run_connection(
                 }
             }
             _ = ping_interval.tick() => {
-                ws_sink.send(WsMessage::Ping(vec![].into())).await?;
+                send_within(&mut ws_sink, WsMessage::Ping(vec![].into()), config.idle_timeout).await?;
+            }
+            _ = tokio::time::sleep_until(last_heard + config.idle_timeout) => {
+                return Err(format!(
+                    "no message from the server in {}s; reconnecting",
+                    config.idle_timeout.as_secs()
+                )
+                .into());
             }
         }
     }
 
     Ok(())
+}
+
+/// Sends a frame, failing if the server does not take it within `limit`: a write blocked on a
+/// dead connection must not stop the idle check.
+async fn send_within<S>(
+    ws_sink: &mut S,
+    msg: WsMessage,
+    limit: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: futures_util::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    match tokio::time::timeout(limit, ws_sink.send(msg)).await {
+        Ok(sent) => Ok(sent?),
+        Err(_) => Err(format!("a write to the server took over {}s", limit.as_secs()).into()),
+    }
 }
 
 async fn authenticate(

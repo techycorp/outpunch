@@ -124,9 +124,6 @@ async fn full_round_trip() {
     let (sink, stream) = connect_client(&base_url, "test-secret", "my-service").await;
     let client_handle = spawn_echo_client(sink, stream);
 
-    // Give the connection a moment to register
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
     // Make an HTTP request through the tunnel
     let resp = reqwest::get(format!("{base_url}/tunnel/my-service/api/test"))
         .await
@@ -168,8 +165,6 @@ async fn returns_504_on_timeout() {
 
     // Connect a client that never responds
     let (_sink, _stream) = connect_client(&base_url, "test-secret", "my-service").await;
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let resp = reqwest::get(format!("{base_url}/tunnel/my-service/api/test"))
         .await
@@ -235,8 +230,6 @@ async fn forwards_post_with_body() {
     let (sink, stream) = connect_client(&base_url, "test-secret", "my-service").await;
     let client_handle = spawn_echo_client(sink, stream);
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
     let http = reqwest::Client::new();
     let resp = http
         .post(format!("{base_url}/tunnel/my-service/api/submit"))
@@ -264,8 +257,6 @@ async fn different_http_methods() {
 
     let (sink, stream) = connect_client(&base_url, "test-secret", "my-service").await;
     let client_handle = spawn_echo_client(sink, stream);
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let http = reqwest::Client::new();
 
@@ -302,8 +293,6 @@ async fn tunnel_request_with_no_subpath() {
 
     let (sink, stream) = connect_client(&base_url, "test-secret", "my-service").await;
     let client_handle = spawn_echo_client(sink, stream);
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let resp = reqwest::get(format!("{base_url}/tunnel/my-service"))
         .await
@@ -357,8 +346,6 @@ async fn tunnel_request_with_query_params() {
             }
         }
     });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let resp = reqwest::get(format!(
         "{base_url}/tunnel/my-service/search?q=hello&page=1"
@@ -417,8 +404,6 @@ async fn tunnel_request_forwards_headers() {
         }
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
     let http = reqwest::Client::new();
     let resp = http
         .get(format!("{base_url}/tunnel/my-service/secure"))
@@ -447,8 +432,6 @@ async fn returns_400_when_body_exceeds_max_size() {
 
     let (sink, stream) = connect_client(&base_url, "test-secret", "my-service").await;
     let client_handle = spawn_echo_client(sink, stream);
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let http = reqwest::Client::new();
     let oversized_body = "x".repeat(200); // 200 bytes > 100 limit
@@ -479,15 +462,22 @@ async fn client_sending_close_frame_disconnects_cleanly() {
     // Send a Close frame
     sink.send(WsMessage::Close(None)).await.unwrap();
 
-    // Give the server time to process
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Requests should now fail with 502 since the client disconnected
-    let resp = reqwest::get(format!("{base_url}/tunnel/my-service/test"))
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), 502);
+    // Requests fail with 502 once the server has processed the close.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let resp = reqwest::get(format!("{base_url}/tunnel/my-service/test"))
+            .await
+            .unwrap();
+        if resp.status() == 502 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "still routed after the close frame: {}",
+            resp.status()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[tokio::test]

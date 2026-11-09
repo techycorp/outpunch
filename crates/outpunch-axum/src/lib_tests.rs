@@ -360,13 +360,16 @@ type ClientSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn serve(timeout: Duration) -> std::net::SocketAddr {
-    use outpunch::server::ServerConfig;
-
-    let server = OutpunchServer::new(ServerConfig {
+    serve_with(outpunch::server::ServerConfig {
         secret: "test-secret".to_string(),
         timeout,
-        ..ServerConfig::default()
-    });
+        ..outpunch::server::ServerConfig::default()
+    })
+    .await
+}
+
+async fn serve_with(config: outpunch::server::ServerConfig) -> std::net::SocketAddr {
+    let server = OutpunchServer::new(config);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -433,11 +436,12 @@ async fn client_that_stops_reading_is_disconnected() {
             .iter()
             .all(|&s| s == 504 || s == 502)
     );
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
-    let started = std::time::Instant::now();
-    assert_eq!(upload_all(addr, 1).await, vec![502]);
-    assert!(started.elapsed() < Duration::from_millis(400));
+    // Without the write timeout the service stays registered and requests time out (504).
+    let unregistered = eventually(Duration::from_secs(5), || async {
+        upload_all(addr, 1).await == vec![502]
+    })
+    .await;
+    assert!(unregistered, "the stalled client is still registered");
 }
 
 // F6 in spec/FINDINGS.md (spec/AxumStalled.cfg): once a connection is over, a write task
@@ -475,4 +479,87 @@ async fn socket_of_a_finished_connection_closes_even_if_the_client_never_reads()
         failed,
         "the server kept the finished connection's socket open"
     );
+}
+
+fn idle_config(idle: Duration) -> outpunch::server::ServerConfig {
+    outpunch::server::ServerConfig {
+        secret: "test-secret".to_string(),
+        client_idle_timeout: idle,
+        ..outpunch::server::ServerConfig::default()
+    }
+}
+
+async fn status_of(addr: std::net::SocketAddr) -> u16 {
+    reqwest::get(format!("http://{addr}/tunnel/my-service/x"))
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
+/// Polls until `check` holds or `limit` passes; returns whether it held.
+async fn eventually<F, Fut>(limit: Duration, mut check: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + limit;
+    while tokio::time::Instant::now() < deadline {
+        if check().await {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+// R30 in spec/REQUIREMENTS.md: a client that sends nothing, not even a ping, is evicted after
+// client_idle_timeout; requests then fail fast with 502 instead of timing out.
+#[tokio::test]
+async fn silent_client_is_evicted() {
+    let addr = serve_with(idle_config(Duration::from_millis(500))).await;
+    let _silent = authed_client(addr).await;
+
+    let evicted = eventually(Duration::from_secs(5), || async {
+        status_of(addr).await == 502
+    })
+    .await;
+    assert!(evicted, "the silent client is still registered");
+}
+
+#[tokio::test]
+async fn pinging_client_stays_registered() {
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+    let addr = serve_with(idle_config(Duration::from_millis(500))).await;
+    let mut ws = authed_client(addr).await;
+
+    // Only pings, for four idle timeouts; each is answered with a pong, which we drain.
+    for _ in 0..20 {
+        ws.send(ClientMessage::Ping(vec![].into())).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let started = tokio::time::Instant::now();
+    let reply = tokio::spawn(async move {
+        while let Some(Ok(message)) = ws.next().await {
+            if let ClientMessage::Text(text) = message
+                && text.contains(r#""type":"request""#)
+            {
+                return Some(ws);
+            }
+        }
+        None
+    });
+    // A request is routed to the client (it is still registered), so it is delivered.
+    let status = tokio::spawn(status_of(addr));
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), reply)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_some(),
+        "the request did not reach the client"
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    status.abort();
 }

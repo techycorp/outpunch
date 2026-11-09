@@ -7,6 +7,8 @@ export interface OutpunchAdapterOptions {
   secret: string;
   timeoutMs?: number;
   maxBodySize?: number;
+  /** How long a connected client may send nothing (not even a ping) before it is dropped. */
+  clientIdleTimeoutMs?: number;
   tunnelPrefix?: string;
   wsPath?: string;
 }
@@ -16,6 +18,7 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
     secret: options.secret,
     timeoutMs: options.timeoutMs,
     maxBodySize: options.maxBodySize,
+    clientIdleTimeoutMs: options.clientIdleTimeoutMs,
   });
   const tunnelPrefix = options.tunnelPrefix ?? '/tunnel';
   const wsPath = options.wsPath ?? '/ws';
@@ -118,6 +121,10 @@ export function createOutpunchMiddleware(options: OutpunchAdapterOptions) {
       ws.on('message', (data: Buffer) => {
         connection.pushMessage(data.toString());
       });
+
+      // A client ping (ws answers it) counts as a sign of life (R30).
+      ws.on('ping', () => connection.heartbeat());
+      ws.on('pong', () => connection.heartbeat());
 
       ws.on('close', () => {
         queue.length = 0;

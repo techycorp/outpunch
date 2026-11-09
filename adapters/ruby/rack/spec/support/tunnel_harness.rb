@@ -140,11 +140,32 @@ module TunnelHarness
   private
 
   def masked_text_frame(text)
+    masked_frame(0x81, text)
+  end
+
+  def masked_frame(first_byte, text)
     mask = [1, 2, 3, 4]
     payload = text.bytes.each_with_index.map { |b, i| b ^ mask[i % 4] }
     raise ArgumentError, "short frames only" if payload.size > 125
 
-    ([0x81, 0x80 | payload.size] + mask + payload).pack("C*")
+    ([first_byte, 0x80 | payload.size] + mask + payload).pack("C*")
+  end
+
+  public
+
+  def send_ping(socket)
+    socket.write(masked_frame(0x89, ""))
+  end
+
+  # Polls until the block is true or the limit passes; returns whether it became true.
+  def eventually(limit = 5)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + limit
+    until yield
+      return false if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+      sleep 0.05
+    end
+    true
   end
 
   def wait_for_port(port)

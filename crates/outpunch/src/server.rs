@@ -45,6 +45,10 @@ pub struct ServerConfig {
     pub max_body_size: usize,
     /// How long a new connection may take to send its auth message.
     pub auth_timeout: Duration,
+    /// How long an authenticated client may stay silent (no message, no WebSocket ping)
+    /// before it is treated as gone: unregistered, its pending requests failed. Must be
+    /// longer than the client's ping interval (30 s by default).
+    pub client_idle_timeout: Duration,
 }
 
 impl Default for ServerConfig {
@@ -54,6 +58,7 @@ impl Default for ServerConfig {
             timeout: Duration::from_secs(25),
             max_body_size: 10 * 1024 * 1024, // 10MB
             auth_timeout: Duration::from_secs(10),
+            client_idle_timeout: Duration::from_secs(90),
         }
     }
 }
@@ -128,6 +133,7 @@ impl OutpunchServer {
                 id,
                 server: self.clone(),
                 incoming_tx: std::sync::Mutex::new(Some(incoming_tx)),
+                last_heard: std::sync::Mutex::new(tokio::time::Instant::now()),
                 callback: std::sync::Mutex::new(None),
                 run_state: std::sync::Mutex::new(Some(ConnectionRunState {
                     incoming_rx,
@@ -342,6 +348,8 @@ struct ConnectionInner {
     id: u64,
     server: OutpunchServer,
     incoming_tx: std::sync::Mutex<Option<mpsc::Sender<String>>>,
+    /// When the client was last heard from: a message or a WebSocket ping.
+    last_heard: std::sync::Mutex<tokio::time::Instant>,
     callback: std::sync::Mutex<Option<MessageCallback>>,
     run_state: std::sync::Mutex<Option<ConnectionRunState>>,
 }
@@ -378,6 +386,7 @@ impl Connection {
 
     /// Push an incoming WebSocket message into the connection.
     pub async fn push_message(&self, text: String) {
+        self.heartbeat();
         let tx = {
             let guard = self.inner.incoming_tx.lock().unwrap();
             guard.as_ref().cloned()
@@ -400,6 +409,16 @@ impl Connection {
                 trace_event!({"ev": "push", "conn": self.inner.id, "msg": traced});
             }
         }
+    }
+
+    /// Record that the client is alive. Adapters call it for every WebSocket ping frame;
+    /// `push_message` calls it for every message.
+    pub fn heartbeat(&self) {
+        *self
+            .inner
+            .last_heard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = tokio::time::Instant::now();
     }
 
     /// Register a callback for outgoing messages (messages to send on the WebSocket).
@@ -467,6 +486,9 @@ impl Connection {
         };
 
         // Register service. The newest connection wins; a replaced connection is closed.
+        // auth_ok is queued under the same lock, so a client that has it is already routable,
+        // and it is the first message the client gets: no request can be queued before it.
+        // The channel is still empty here, so try_send cannot fail for lack of room.
         #[cfg_attr(not(feature = "trace"), allow(clippy::let_and_return))]
         let replaced = {
             let mut state = self.inner.server.state.lock().unwrap();
@@ -478,6 +500,10 @@ impl Connection {
                     connection: Arc::downgrade(&self.inner),
                 },
             );
+            let ok = protocol::AuthOk {
+                msg_type: "auth_ok".to_string(),
+            };
+            let _ = outgoing_tx.try_send(serde_json::to_string(&ok).unwrap());
             trace_event!({
                 "ev": "register",
                 "conn": self.inner.id,
@@ -495,14 +521,36 @@ impl Connection {
         }
         trace_event!({"ev": "kick", "conn": self.inner.id});
 
-        // Relay loop: read responses from the client
-        while let Some(raw) = incoming_rx.recv().await {
-            #[cfg_attr(not(feature = "trace"), allow(unused_variables))]
-            let completed = self.deliver_response(&raw);
-            trace_event!({"ev": "relay", "conn": self.inner.id, "req": completed});
+        // Relay loop: read responses from the client, until the connection closes or the
+        // client has been silent for client_idle_timeout.
+        let idle_timeout = self
+            .inner
+            .server
+            .state
+            .lock()
+            .unwrap()
+            .config
+            .client_idle_timeout;
+        loop {
+            let deadline = *self.inner.last_heard.lock().unwrap() + idle_timeout;
+            tokio::select! {
+                raw = incoming_rx.recv() => {
+                    let Some(raw) = raw else {
+                        trace_event!({"ev": "relay_end", "conn": self.inner.id});
+                        break;
+                    };
+                    #[cfg_attr(not(feature = "trace"), allow(unused_variables))]
+                    let completed = self.deliver_response(&raw);
+                    trace_event!({"ev": "relay", "conn": self.inner.id, "req": completed});
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    if self.inner.last_heard.lock().unwrap().elapsed() >= idle_timeout {
+                        trace_event!({"ev": "idle", "conn": self.inner.id});
+                        break;
+                    }
+                }
+            }
         }
-
-        trace_event!({"ev": "relay_end", "conn": self.inner.id});
 
         drop(cleanup);
         drop(outgoing_tx);
@@ -577,11 +625,6 @@ impl Connection {
             let _ = outgoing_tx.send(serde_json::to_string(&err).unwrap()).await;
             return None;
         }
-
-        let ok = protocol::AuthOk {
-            msg_type: "auth_ok".to_string(),
-        };
-        let _ = outgoing_tx.send(serde_json::to_string(&ok).unwrap()).await;
 
         Some(msg.service)
     }

@@ -43,6 +43,7 @@ TESTS = [
     "connection_keeps_serving_after_a_request_is_cancelled",
     "dropped_run_unregisters_and_fails_pending",
     "dead_callback_unregisters_service",
+    "silent_client_is_evicted_after_the_idle_timeout",
 ]
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -145,6 +146,7 @@ def write_check(test, log, constants, target, spec):
     Reconnects = FALSE
     RunDrops = TRUE
     DrainDies = TRUE
+    Silences = TRUE
     None = None
     TraceLog <- Log
     Target = {target}

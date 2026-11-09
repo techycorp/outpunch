@@ -83,10 +83,6 @@ The client forwards every tunneled request to the local service at once, with no
 
 When a newer client replaces an existing one for the same service, log a warning on the server. Two live clients misconfigured with the same service name otherwise only show up as reconnect churn in the client logs.
 
-## Configurable Ping Interval
-
-The client's keepalive ping interval is hard-coded at 30s. Make it a `ClientConfig` setting (exposed through the Python, Node and Ruby bindings), then add a test that pings keep flowing while a slow request is in flight.
-
 ## Precompiled Ruby Gems
 
 The native `outpunch-ruby` gem is published as source and compiles its Rust extension on install, so every app using `outpunch-ruby-rack` or `outpunch-ruby-rails` needs a Rust toolchain at install time (a problem for many deploy platforms). Publish precompiled platform gems with rb-sys's cross-compilation tooling, keeping the source gem as a fallback.

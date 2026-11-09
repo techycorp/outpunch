@@ -128,6 +128,13 @@ Client → Server:  {
 
 Handled at the WebSocket frame level (ping/pong). No application-level ping messages.
 
+- The client pings every 30 s (`ping_interval`) and reconnects if it hears nothing from the server (a
+  pong or any message) for 75 s (`idle_timeout`).
+- The server answers pings and counts each ping or message from the client as a sign of life. A client
+  silent for 90 s (`client_idle_timeout`) is unregistered and its in-flight requests fail with 502.
+- Both sides therefore notice a half-open connection (a peer that vanished without closing the socket)
+  within about a minute and a half, instead of when TCP gives up (about 15 minutes on Linux).
+
 ## Authentication Model
 
 Layered:

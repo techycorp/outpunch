@@ -9,6 +9,7 @@
 | F5 | adapters: timed-out requests stay queued and are written to the socket late | fixed | TLC (`AxumLate.cfg`) | axum `timed_out_requests_are_not_delivered_later`, Ruby `server_spec.rb`, Node `server.test.ts` (all pass) |
 | F6 | axum: a never-reading peer keeps the write task and socket alive | fixed | TLC (`AxumStalled.cfg`) | `socket_of_a_finished_connection_closes_even_if_the_client_never_reads` (pass) |
 | F7 | adapters: a connected client that stops reading makes server memory grow without limit | fixed (bounded by the request timeout) | TLC (`AxumStale.cfg`, `AxumStuck.cfg`) | axum `client_that_stops_reading_is_disconnected`, Rack `connection_spec.rb`, Node `server.test.ts` (all pass) |
+| F8 | client and server: a half-open connection goes unnoticed for about 15 minutes | fixed | production outage 2026-10-24 | client `run_connection_gives_up_on_a_server_that_stops_answering`; core `silent_client_is_evicted_after_the_idle_timeout` (pass) |
 
 Each fix was checked the same way: the model's expected failure became a pass, a mutation in
 `spec/mutations.txt` that undoes the fix is caught, and the reproduction fails without the fix and passes
@@ -316,3 +317,41 @@ would cap it lower and turn some 504s into fast 503s.
 
 Direct users of the native Ruby gem are covered by its queue-side check (above), not a socket write
 timeout.
+
+## F8: a half-open connection goes unnoticed for about 15 minutes
+
+Status: **fixed.** Found in production, not by a model: two StormSnap tunnel outages on 2026-10-24
+(healthchecks.io alerts at 9:20 and 10:00 local, each about 19.5 minutes).
+
+Evidence (the client's pod logs; mordor has no log drain, so the server side is gone):
+- The client logged `connection closed` at 16:37:52 and 17:16:58 UTC and was authenticated again 5 s
+  later each time, matching the two recoveries. The pod did not restart (0 restarts since 2026-10-23).
+- No mordor release in the window, so not a deploy. Most of the client's other closes that week
+  reconnected within 5 s: the server closed them cleanly.
+- The client pinged every 30 s but never checked for a pong and had no read timeout. When the server
+  side vanished without closing the socket, the pings sat unacknowledged until TCP gave up:
+  `tcp_retries2` is 15 in the pod, about 15.4 minutes, which with the 5-minute uptime check matches the
+  outage length.
+
+The server had the mirror-image gap: a client that disappears without closing stays registered, and
+requests to it wait for their timeout, until a write to it fails.
+
+Fix:
+- Client (R31): anything received (a pong or any message) resets an idle timer; after `idle_timeout`
+  (75 s, with a ping every `ping_interval`, 30 s) the client drops the connection and reconnects. Writes
+  have the same limit, so a blocked write cannot stop the check. Both are `ClientConfig` settings, also in
+  the Python and Ruby bindings and the CLI (`--ping-interval`, `--idle-timeout`).
+- Server (R30): the core keeps the time the client was last heard from (`push_message`, and
+  `Connection::heartbeat`, which the axum, Node and Rack adapters call for every WebSocket ping) and
+  evicts the client after `client_idle_timeout` (90 s). Existing clients already ping every 30 s, so they
+  are not evicted.
+- Model: `Tunnel.tla` lets a client go silent forever (`Silences`) and the relay loop evict it
+  (`IdleEvict`); `Idle.cfg` checks `SilentUnregistered` together with the safety properties (an evicted
+  connection's cleanup must not unregister a newer one, its requests fail with 502). A mutation that
+  removes eviction is caught. The model has no clocks, so "a client that pings is never evicted" is a
+  timing assumption, tested in Rust and in each adapter, not checked by TLC.
+- Trace validation: `silent_client_is_evicted_after_the_idle_timeout` is in the trace set.
+
+Not verified: that Heroku's router passes WebSocket ping and pong frames between client and dyno
+(`vendor-claims.toml`, unverified). If it did not, the server would evict idle clients every 90 s; check
+after deploying by leaving the tunnel idle for a few minutes.
