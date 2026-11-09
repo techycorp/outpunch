@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Run every model listed in a manifest and check each has its expected outcome.
+#
+# Usage: scripts/tla/check-all <manifest>
+#
+# Manifest: one model per line, blank lines and '#' comments ignored:
+#   <spec.tla> <config.cfg> <expect> [extra TLC args...]
+# where <expect> is one of:
+#   pass          TLC finds no error
+#   fail:Name     TLC reports that the named invariant or temporal property is
+#                 violated (a known, documented finding). TLC does not name a
+#                 violated temporal property, so for a temporal Name the config
+#                 must list Name as its only PROPERTIES entry.
+#   reach:A,B     each listed invariant is violated (non-vacuity witnesses). Each
+#                 one is checked in its own TLC run, with the config's INVARIANTS
+#                 replaced by that one, so one witness cannot mask another.
+# Paths are relative to the current directory.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+	echo "usage: $0 <manifest>" >&2
+	exit 2
+fi
+
+here=$(dirname "$0")
+tmp=target/tlc/cfg
+logs=target/tlc/logs
+mkdir -p "$tmp" "$logs"
+failed=0
+
+# Keep TLC's output of a failed check so the failure can be diagnosed.
+keep() {
+	local log="$logs/$(basename "$1" .cfg)${2:+-$2}.out"
+	printf '%s\n' "$out" >"$log"
+	echo "      output: $log"
+}
+
+# Print the names listed under a config section (INVARIANTS or PROPERTIES).
+section() {
+	awk -v s="$1" '
+		$1 == s { on = 1; next }
+		on && /^[A-Z_]+/ { on = 0 }
+		on && NF { print $1 }
+	' "$2"
+}
+
+# Write a copy of a config whose INVARIANTS section is just $2, without PROPERTIES.
+only_invariant() {
+	awk -v inv="$2" '
+		/^(INVARIANTS|PROPERTIES)/ { skip = 1; next }
+		skip && /^[A-Z_]+/ { skip = 0 }
+		skip { next }
+		{ print }
+		END { print "INVARIANTS"; print "    " inv }
+	' "$1"
+}
+
+while read -r spec cfg expect args; do
+	read -ra extra <<<"${args:-}"
+	case "$spec" in '' | '#'*) continue ;; esac
+	case "$expect" in
+	pass)
+		out=$("$here/tlc" "$spec" "$cfg" ${extra[@]+"${extra[@]}"} 2>&1)
+		# Exhaustive runs print "No error has been found"; simulation runs only finish.
+		if grep -q "No error has been found" <<<"$out" ||
+			{ grep -q "^Finished in" <<<"$out" && ! grep -q "^Error" <<<"$out"; }; then
+			echo "ok    $cfg: pass"
+		else
+			echo "FAIL  $cfg: expected pass"
+			keep "$cfg"
+			failed=1
+		fi
+		;;
+	fail:*)
+		name=${expect#fail:}
+		out=$("$here/tlc" "$spec" "$cfg" ${extra[@]+"${extra[@]}"} 2>&1)
+		if grep -q "Invariant $name is violated" <<<"$out"; then
+			got=yes
+		elif grep -q "Temporal properties were violated" <<<"$out" &&
+			! grep -q "Invariant .* is violated" <<<"$out" &&
+			[ "$(section PROPERTIES "$cfg")" = "$name" ]; then
+			got=yes
+		else
+			got=no
+		fi
+		if [ $got = yes ]; then
+			echo "ok    $cfg: $name violated (expected)"
+		else
+			echo "FAIL  $cfg: expected $name to be violated"
+			keep "$cfg"
+			failed=1
+		fi
+		;;
+	reach:*)
+		IFS=, read -ra invs <<<"${expect#reach:}"
+		for inv in "${invs[@]}"; do
+			one="$tmp/$(basename "$cfg" .cfg)-$inv.cfg"
+			only_invariant "$cfg" "$inv" >"$one"
+			# Capture first: TLC exits non-zero on a violation, which pipefail would report.
+			out=$("$here/tlc" "$spec" "$one" ${extra[@]+"${extra[@]}"} 2>&1)
+			if grep -q "Invariant $inv is violated" <<<"$out"; then
+				echo "ok    $cfg: $inv reachable"
+			else
+				echo "FAIL  $cfg: $inv not reachable"
+				keep "$cfg" "$inv"
+				failed=1
+			fi
+		done
+		;;
+	*)
+		echo "FAIL  $cfg: unknown expectation '$expect'"
+		failed=1
+		;;
+	esac
+done <"$1"
+
+exit $failed

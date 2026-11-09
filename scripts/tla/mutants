@@ -1,0 +1,86 @@
+#!/usr/bin/env python
+"""Check that a spec's properties catch known bugs (mutation testing for TLA+ models).
+
+Usage: scripts/tla/mutants <mutations-file>
+
+The file holds one or more blocks:
+
+    ## name: accept any token
+    ## spec: spec/Tunnel.tla
+    ## cfg: spec/Tunnel.cfg
+    ## expect: RoutedOnlyIfAuthed
+    --- old
+    IF Valid(m)
+    --- new
+    IF m.type = "auth"
+    ===
+
+Each mutant replaces the `old` text (which must occur exactly once in the spec) with
+the `new` text, then runs TLC with the config's constants and only the `expect`
+invariant (or, for a temporal property, only that property). The mutant is caught
+if TLC reports that property violated. Exit status is non-zero if any mutant
+survives or a block is malformed.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+WORK = Path("target/tlc/mutants")
+
+
+def parse(text):
+    blocks = []
+    for raw in text.split("\n===")[:-1]:
+        meta = dict(re.findall(r"^## (\w+): (.*)$", raw, re.M))
+        m = re.search(r"^--- old\n(.*?)\n--- new\n(.*)\Z", raw.strip("\n") + "\n", re.S | re.M)
+        if not m or not {"name", "spec", "cfg", "expect"} <= meta.keys():
+            raise SystemExit(f"malformed mutation block:\n{raw}")
+        blocks.append({**meta, "old": m.group(1), "new": m.group(2).rstrip("\n")})
+    return blocks
+
+
+def section_names(cfg_text, section):
+    m = re.search(rf"^{section}\n((?:[ \t]+\S.*\n?)+)", cfg_text, re.M)
+    return m.group(1).split() if m else []
+
+
+def only(cfg_text, name):
+    """Config with the same constants and spec, checking only `name`."""
+    temporal = name in section_names(cfg_text, "PROPERTIES")
+    kept = re.sub(r"^(INVARIANTS|PROPERTIES)\n(?:[ \t]+\S.*\n?)*", "", cfg_text, flags=re.M)
+    return kept + ("\nPROPERTIES\n" if temporal else "\nINVARIANTS\n") + f"    {name}\n", temporal
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit(__doc__)
+    survivors = 0
+    for i, b in enumerate(parse(Path(sys.argv[1]).read_text()), 1):
+        spec_text = Path(b["spec"]).read_text()
+        if spec_text.count(b["old"]) != 1:
+            print(f"FAIL  {b['name']}: 'old' text occurs {spec_text.count(b['old'])} times in {b['spec']}")
+            survivors += 1
+            continue
+        d = WORK / f"m{i}"
+        d.mkdir(parents=True, exist_ok=True)
+        spec = d / Path(b["spec"]).name
+        spec.write_text(spec_text.replace(b["old"], b["new"]))
+        cfg_text, temporal = only(Path(b["cfg"]).read_text(), b["expect"])
+        cfg = d / f"mutant{i}.cfg"
+        cfg.write_text(cfg_text)
+        out = subprocess.run([str(HERE / "tlc"), str(spec), str(cfg)], capture_output=True, text=True).stdout
+        caught = (f"Invariant {b['expect']} is violated" in out) or (
+            temporal and "Temporal properties were violated" in out)
+        if caught:
+            print(f"ok    caught by {b['expect']}: {b['name']}")
+        else:
+            print(f"FAIL  survived {b['expect']}: {b['name']}")
+            survivors += 1
+    sys.exit(1 if survivors else 0)
+
+
+if __name__ == "__main__":
+    main()

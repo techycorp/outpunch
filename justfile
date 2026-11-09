@@ -43,6 +43,21 @@ test-all: test test-python test-node
 coverage:
 	cargo tarpaulin -p outpunch -p outpunch-axum -p outpunch-client --out stdout
 
+# TLA+ models (spec/); see spec/README.md
+tla cfg="Tunnel" *args:
+	scripts/tla/tlc spec/Tunnel.tla spec/{{cfg}}.cfg {{args}}
+
+tla-all:
+	scripts/tla/check-all spec/models.txt
+
+# Check the TLA+ properties catch known bugs (spec/mutations.txt)
+tla-mutants:
+	scripts/tla/mutants spec/mutations.txt
+
+# Check that executions of the core's tests are behaviors of the model (trace validation)
+tla-traces:
+	python spec/trace/check_traces.py
+
 # Python bindings
 build-python:
 	just -f bindings/python/justfile build

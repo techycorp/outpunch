@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Run TLC on a TLA+ spec with a config, using a pinned, checksum-verified tla2tools.jar.
+#
+# Usage: scripts/tla/tlc <spec.tla> <config.cfg> [extra TLC args...]
+#
+# The jar is cached at ~/.cache/tlaplus/<version>/tla2tools.jar. TLC's working
+# files go to target/tlc/<config name>. Java comes from mise.
+#
+# Override the pinned release with TLA_VERSION and TLA_SHA256.
+set -euo pipefail
+
+TLA_VERSION="${TLA_VERSION:-v1.7.4}"
+# SHA-256 of the v1.7.4 release asset; its SHA-1 matches the one in the release notes.
+TLA_SHA256="${TLA_SHA256:-936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88}"
+
+if [ $# -lt 2 ]; then
+	echo "usage: $0 <spec.tla> <config.cfg> [TLC args...]" >&2
+	exit 2
+fi
+spec=$1
+cfg=$2
+shift 2
+
+jar="$HOME/.cache/tlaplus/$TLA_VERSION/tla2tools.jar"
+
+verify() {
+	echo "$TLA_SHA256  $1" | shasum -a 256 -c --quiet >/dev/null 2>&1
+}
+
+if [ ! -f "$jar" ]; then
+	mkdir -p "$(dirname "$jar")"
+	curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar"
+	if ! verify "$jar.part"; then
+		rm -f "$jar.part"
+		echo "checksum mismatch for downloaded tla2tools.jar $TLA_VERSION" >&2
+		exit 1
+	fi
+	mv "$jar.part" "$jar"
+fi
+if ! verify "$jar"; then
+	echo "checksum mismatch: $jar" >&2
+	exit 1
+fi
+
+# A metadir per run, so concurrent runs of the same config do not share TLC's state files.
+meta="target/tlc/$(basename "$cfg" .cfg).$$"
+trap 'rm -rf "$meta"' EXIT
+mise exec -- java -XX:+UseParallelGC -cp "$jar" tlc2.TLC \
+	-workers auto -metadir "$meta" "$@" -config "$cfg" "$spec"
