@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.6.0
+
+### Breaking changes
+
+- **Rust: `ServerConfig` and `ClientConfig` have new fields** (`client_idle_timeout`; `ping_interval`,
+  `idle_timeout`). Code that builds them with every field listed must add these or use
+  `..Default::default()`.
+- **Connections are now dropped in cases where they used to hang.** A client that sends nothing, not even
+  a WebSocket ping, for 90 s is unregistered (clients from this repo ping every 30 s). A client that
+  cannot take one message within the request timeout is disconnected. A client that hears nothing from
+  the server for 75 s reconnects. Callers see 502 instead of waiting for a timeout.
 
 ### Fixed
 
@@ -38,7 +48,7 @@
 
 - **TLA+ models** in `spec/`, checked with TLC (`just tla-all`): the server core, the axum adapter's
   connection path, the Ruby binding's interrupt handling, and the planned multi-client design. The core
-  model is trace-validated against 18 of the core's unit tests (`just tla-traces`) and mutation-checked
+  model is trace-validated against 19 of the core's unit tests (`just tla-traces`) and mutation-checked
   (`just tla-mutants`). Requirements and their sources are in `spec/REQUIREMENTS.md`; open findings
   (F1-F8, all fixed) are in `spec/FINDINGS.md`.
 - **Rust: a `trace` feature on the `outpunch` crate** that writes one event per model step for trace
