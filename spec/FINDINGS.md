@@ -352,6 +352,8 @@ Fix:
   timing assumption, tested in Rust and in each adapter, not checked by TLC.
 - Trace validation: `silent_client_is_evicted_after_the_idle_timeout` is in the trace set.
 
-Not verified: that Heroku's router passes WebSocket ping and pong frames between client and dyno
-(`vendor-claims.toml`, unverified). If it did not, the server would evict idle clients every 90 s; check
-after deploying by leaving the tunnel idle for a few minutes.
+Heroku: a ping sent through the router to production mordor comes back as a pong with the same payload
+(`crates/outpunch-client/tests/vendor_heroku.rs`). Whether the dyno or the router produced that pong is
+not shown, so "the ping reaches the dyno" is still unverified (`vendor-claims.toml`). If it did not, the
+server would evict idle clients every 90 s; check after deploying by leaving the tunnel idle for a few
+minutes.

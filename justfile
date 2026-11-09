@@ -21,10 +21,12 @@ check: vendor-claims
 	cargo check
 
 vendor-claims:
-	uv run --script ~/.claude/skills/verify-vendor-claims/scripts/check_vendor_claims.py
+	@command -v vending-machine >/dev/null || { echo "vending-machine not installed: clone techycorp/vending-machine and run just install" >&2; exit 1; }
+	vending-machine check
 
 test-vendor:
 	cargo test -p outpunch-client --test vendor_rustls -- --ignored
+	cargo test -p outpunch-client --test vendor_heroku -- --ignored
 	cargo test -p outpunch --test vendor_tokio -- --ignored
 	cargo test -p outpunch-axum --test vendor_axum -- --ignored
 	cd bindings/ruby && bundle exec rake compile && bundle exec rspec --tag vendor

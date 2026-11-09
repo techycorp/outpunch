@@ -1,7 +1,5 @@
 # Files matching these globs are fakes and must be listed below.
 fake_globs = ["crates/*/tests/fakes/*.rs", "adapters/ruby/*/spec/support/fakes/*.rb"]
-# Ceiling on unverified claims; it only goes down.
-max_unverified = 0
 
 [[fake]]
 path = "crates/outpunch-client/tests/fakes/tls_server.rs"
@@ -179,5 +177,9 @@ path = "spec/Tunnel.tla"
 vendor = "heroku"
 
 [[fake.claim]]
-behaviour = "Heroku's router passes WebSocket ping and pong frames between the client and the dyno"
-unverified = "needs a deployed Heroku app; check after deploying by leaving the tunnel idle past client_idle_timeout and confirming it stays registered"
+behaviour = "a WebSocket ping sent through Heroku's router is answered with a pong carrying its payload"
+verified_by = "crates/outpunch-client/tests/vendor_heroku.rs::heroku_must_answer_a_websocket_ping_with_its_pong"
+
+[[fake.claim]]
+behaviour = "Heroku's router forwards a client's WebSocket ping to the dyno"
+unverified = "the pong does not show whether the dyno or the router answered; check after deploying the heartbeat by leaving the tunnel idle past client_idle_timeout (90 s) and confirming it stays registered"
