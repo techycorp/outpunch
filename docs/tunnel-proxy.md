@@ -1,5 +1,8 @@
 # Reverse WebSocket Tunnel Proxy
 
+> Original design doc. Current behavior differs in places (auth errors, disconnect handling, connection
+> replacement); [spec/REQUIREMENTS.md](../spec/REQUIREMENTS.md) records the current requirements and their sources.
+
 A pattern for exposing services running on a private server through a public-facing web application, without opening any inbound ports or configuring NAT/firewall rules.
 
 ## Problem

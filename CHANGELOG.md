@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A request whose caller was cancelled no longer leaves its entry in the server's pending map** until the
+  client disconnected. Cancellation happens when the request future is dropped, for example when the Ruby
+  binding aborts it after a `Timeout::Error`. Found by the new TLA+ model of the core
+  ([spec/FINDINGS.md](spec/FINDINGS.md), F1).
+- **axum, Ruby and Node: a request whose caller already got an answer (for example a 504 timeout) is no longer
+  written to a client that was slow to read.** The adapter now drops it from its outgoing queue instead of delivering
+  it when the client recovers. The one request already being written at that moment can still arrive.
+  Found by the TLA+ model of the axum adapter (F5).
+
+- **A dropped `Connection::run()` future now cleans up**: the service is unregistered and its in-flight
+  requests fail fast with 502, instead of the service staying routed to a dead connection (F3).
+- **A panicking `on_message` callback now closes its connection**, so the service is unregistered instead
+  of staying routed to a connection that can no longer send (F4).
+- **Ruby: `Connection#next_outgoing` can be interrupted while another thread holds the queue**
+  (`Thread#raise`, `Timeout`) (F2).
+- **axum: the socket of a finished connection closes even if the client never reads** (F6).
+- **A client that stays connected but stops reading is disconnected** once one write to it has waited
+  longer than the request timeout (axum, Rack/Rails, Node). Its service is unregistered and new requests
+  fail fast with 502 instead of piling up in server memory (F7). The native Ruby gem, which does not own
+  the socket, closes the connection when a queued message has waited longer than the request timeout for
+  `next_outgoing`.
+
+### Added
+
+- **TLA+ models** in `spec/`, checked with TLC (`just tla-all`): the server core, the axum adapter's
+  connection path, the Ruby binding's interrupt handling, and the planned multi-client design. The core
+  model is trace-validated against 18 of the core's unit tests (`just tla-traces`) and mutation-checked
+  (`just tla-mutants`). Requirements and their sources are in `spec/REQUIREMENTS.md`; open findings
+  (F1-F7, all fixed) are in `spec/FINDINGS.md`.
+- **Rust: a `trace` feature on the `outpunch` crate** that writes one event per model step for trace
+  validation. Off by default; compiled out entirely when off.
+- **Rust: `OutpunchServer::is_pending(&msg)`**, false for a request message whose caller has already been
+  answered. Server adapters call it before writing an outgoing message. Node: `OutpunchServer#isPending`.
+- **Rust: `OutpunchServer::request_timeout()`**, which adapters also use as the write timeout, and
+  `Connection::downgrade()` / `WeakConnection`, a handle that does not keep the connection alive.
+
 ## v0.5.6
 
 ### Fixed

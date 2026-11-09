@@ -50,13 +50,14 @@ Real network, real WebSocket connections, real HTTP. Server and client as separa
 
 The happy path is easy. Failure modes are where production breaks:
 
-- Client disconnects mid-request — pending request should timeout, not hang forever
+- Client disconnects mid-request — pending request fails immediately with 502, not hang or wait for the timeout
 - Client reconnects after disconnect — new requests should work immediately
 - Server receives a response for an already-timed-out request — silently ignored, no panic
 - Malformed WebSocket messages — invalid JSON, missing fields, wrong types
 - Auth with wrong token, empty token, no auth message at all
 - Client subscribes to a service then unsubscribes — requests to that service should 502
-- Two clients try to register for the same service (behavior TBD — see open questions in product.md)
+- Two clients register for the same service — the newer one takes over and the older connection is closed (see [future.md](future.md))
+- A caller is cancelled while its request is pending — the pending entry is removed (F1 in [spec/FINDINGS.md](../spec/FINDINGS.md))
 - Server shuts down cleanly while requests are in-flight
 - WebSocket connection drops and reconnects under load
 
@@ -67,6 +68,23 @@ For a protocol library where stability matters:
 - Fuzz the JSON message parser with arbitrary bytes — should never panic
 - Property test: any valid `TunnelRequest` survives serialize → deserialize round-trip identically
 - Property test: any valid `TunnelResponse` survives serialize → deserialize round-trip identically
+
+## Formal Models (TLA+)
+
+The core's concurrency (auth, connection replacement, pending requests, timeouts, cleanup), the axum
+adapter's connection path and the Ruby binding's interrupt handling are modeled in TLA+ in
+[spec/](../spec/README.md) and checked with TLC: `just tla-all`. Requirements are in
+[spec/REQUIREMENTS.md](../spec/REQUIREMENTS.md); results in [spec/FINDINGS.md](../spec/FINDINGS.md); what the
+runs do, in [spec/HOW-IT-WORKS.md](../spec/HOW-IT-WORKS.md).
+
+- A model checks the design, not the Rust. When it finds a violation, a unit test reproduces it in the
+  code; open findings have `#[ignore]`d reproductions that fail until fixed
+  (`cargo test -p outpunch -- --ignored`, `cargo test -p outpunch-axum -- --ignored`).
+- `just tla-traces` checks that executions of the core's unit tests are behaviors of the core model
+  (trace validation, using the `trace` feature). Run it after changing `server.rs` or `Tunnel.tla`.
+- `just tla-mutants` checks that the core model's properties catch a list of known bugs.
+- When changing modeled code, follow "Keeping models in step with the code" in
+  [spec/README.md](../spec/README.md): the models do not update themselves.
 
 ## Structure
 

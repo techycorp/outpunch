@@ -56,4 +56,5 @@ CI fails if `openssl`, `openssl-sys` or `native-tls` appears in a lockfile.
 - [docs/releasing.md](docs/releasing.md) — Cutting a release: lockstep version bump script, tag, what the release workflow checks and publishes
 - [docs/registries.md](docs/registries.md) — Where each package is published, under which account, and how CI authenticates
 - [docs/distributed.md](docs/distributed.md) — Open question: running the server across multiple instances (unreviewed analysis, no plans)
+- [spec/README.md](spec/README.md) — TLA+ models (core, axum adapter, Ruby binding, multi-client design), trace validation and mutation checks: how to run them, what they check; [spec/REQUIREMENTS.md](spec/REQUIREMENTS.md) — sourced core requirements; [spec/FINDINGS.md](spec/FINDINGS.md) — what the model found
 - [docs/tunnel-proxy.md](docs/tunnel-proxy.md) — Original design doc with full architecture, protocol spec, and reference Ruby/Python implementation

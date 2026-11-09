@@ -20,6 +20,10 @@ Each adapter is small and specific to one framework. Examples: `outpunch-axum` (
 
 The outpunch client binary. Runs on the private network, connects outbound via WebSocket to the server, receives proxied HTTP requests, forwards them to local services, and sends responses back. No framework compatibility concerns — it's always a standalone process.
 
+## Caller
+
+Whoever sends the HTTP request to the server's tunnel endpoint: a browser, an API consumer, or the host app's own code. The caller gets the tunnel client's response, or a 502 or 504 that the server generates itself (no client connected, client disconnected, timeout).
+
 ## Incoming Request
 
 What the adapter passes to the core: service, method, path, query, headers, body. No `request_id` — the core generates that. This is the boundary type between the adapter and the core.

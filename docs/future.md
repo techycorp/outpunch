@@ -14,6 +14,8 @@ The server accepts multiple client connections for the same service name and rou
 
 **Alternative**: keep outpunch as one client per service. If you need multiple instances, the standalone client sits in front of a real load balancer (Traefik, nginx, HAProxy) on the private side. Outpunch is the tunnel, the load balancer is the load balancer.
 
+This alternative only works when the instances share a private network. It does not fit the target deployment: the server on Heroku with clients for the same service in different regions, reachable only over the public internet, so there is no private side to put a load balancer on. Multiple clients per service is therefore a real requirement for that deployment. Design notes: [spec/notes/multi-client.md](../spec/notes/multi-client.md).
+
 **Current behavior**: one client per service, newest wins. When a second client authenticates for a service, it replaces the first, and the server closes the replaced connection and fails its in-flight requests with 502. This favors fast reconnects: a client whose old socket died without the server noticing can take over immediately. Two live clients misconfigured with the same service will repeatedly displace each other, which shows up as reconnect churn in their logs.
 
 **Open questions**:
@@ -62,7 +64,16 @@ Docker image, Helm chart, and pre-built binaries for the standalone client. Make
 
 ## Bounded Outgoing Queue
 
-The axum, Node and Ruby adapters queue messages for a client without a limit. A client that reads slower than requests arrive, for a sustained period, makes server memory grow by roughly one request body per queued message. Replace the queue with a bounded one that fails new requests fast (503) when full.
+The axum, Node and Ruby adapters queue messages for a client without a limit. A client that reads slower than requests arrive, for a sustained period, makes server memory grow by roughly one request body per queued message. Since F7's fix, memory under overload is about arrival rate × request timeout, bodies included
+([spec/FINDINGS.md](../spec/FINDINGS.md), F7): a sizing concern for small servers (a 512 MB dyno) with
+sustained large uploads. A bounded queue that fails new requests fast (503) when full would cap it lower.
+
+## Request Deadline in the Protocol
+
+After a 504, a request can still reach the client and run: the one being written when its caller timed
+out, and anything already in the socket buffers (F5 residual in
+[spec/FINDINGS.md](../spec/FINDINGS.md)). No adapter can prevent that. Send a deadline with each request
+and have the client drop requests that arrive after it. Needs a protocol change in every client.
 
 ## Client Concurrency Limit
 
@@ -91,3 +102,27 @@ The Ruby gems are unsupported on Windows. In CI (MSYS2/UCRT, Ruby 3.1 to 3.3) th
 ## Use rustls Instead of OpenSSL
 
 `outpunch-client` gets TLS from the system OpenSSL (`reqwest` and `tokio-tungstenite` with `native-tls`). The x86_64 Linux wheel build therefore runs `yum install openssl-devel` inside the manylinux container, and AlmaLinux's mirrors can make that take 25+ minutes (v0.5.0 dry runs: 4, 21+ and 28 minutes for the same code). Switching both to `rustls` removes the system dependency and the `yum` step, and makes every build hermetic.
+
+## Vendor Spec for Thread#kill
+
+`bindings/ruby/spec/vendor/ruby_gvl_spec.rb` verifies how `Thread#raise` and `Thread#wakeup` interact with
+`rb_thread_call_without_gvl2`, but not `Thread#kill`; `spec/RubyGvl.tla` assumes kill behaves like raise
+(the unblocking function is called and `rb_thread_check_ints` stops the call). The binding's own specs
+already exercise kill (`server_spec.rb`: "can kill a thread blocked in next_outgoing", "closes the
+connection when the thread running it is killed"), so a change in Ruby would still be caught, but as a
+binding failure rather than a named vendor fact. Add a probe case and a claim in `vendor-claims.toml`.
+
+## Formal Model Checks in CI
+
+`just tla-traces` (about 15 s) and a fast subset of `spec/models.txt` should run in CI, so a change to
+`crates/outpunch/src/server.rs` that the model does not allow fails the build. `just tla-all` takes
+about 5 hours on all cores (most of it `RunDropOther.cfg` and `DrainDeath.cfg`), so it needs splitting into a fast CI set and a slow nightly set.
+
+## Model Drift Check
+
+`AxumBridge.tla` and `RubyGvl.tla` have no trace validation, so nothing notices when their code changes.
+A check that maps code to models (`server.rs` → `Tunnel.tla`, `crates/outpunch-axum/src/lib.rs` →
+`AxumBridge.tla`, `bindings/ruby/ext/` → `RubyGvl.tla`) and fails when a branch changes the code without
+touching its model, unless the commit says why. See "Keeping models in step with the code" in
+`spec/README.md`.
+

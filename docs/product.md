@@ -92,10 +92,13 @@ Outpunch uses a simple raw WebSocket protocol. No framework-specific abstraction
 
 ```
 Client connects via WebSocket
-Client → Server:  {"type": "auth", "token": "shared-secret", "services": ["my-service", "pdf-gen"]}
+Client → Server:  {"type": "auth", "token": "shared-secret", "service": "my-service"}
 Server → Client:  {"type": "auth_ok"}
-  or server closes the connection on auth failure
+  or {"type": "auth_error", "message": "..."}, then the server closes the connection
 ```
+
+One service per connection is implemented. Multiple services per connection (`"services": [...]`) is the
+plan; see [future.md](future.md).
 
 ### Request/Response
 
