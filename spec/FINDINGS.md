@@ -354,6 +354,7 @@ Fix:
 
 Heroku: a ping sent through the router to production mordor comes back as a pong with the same payload
 (`crates/outpunch-client/tests/vendor_heroku.rs`). Whether the dyno or the router produced that pong is
-not shown, so "the ping reaches the dyno" is still unverified (`vendor-claims.toml`). If it did not, the
-server would evict idle clients every 90 s; check after deploying by leaving the tunnel idle for a few
-minutes.
+not shown by that test. "The ping reaches the dyno" is observed instead (`vendor-claims.toml`): on
+2026-11-09, with 0.6.0 on mordor-production and the StormSnap client, the tunnel stayed registered for
+6 min with no traffic but pings. Had the router answered pings itself, the server would have evicted the
+client at 90 s.

@@ -182,4 +182,4 @@ verified_by = "crates/outpunch-client/tests/vendor_heroku.rs::heroku_must_answer
 
 [[fake.claim]]
 behaviour = "Heroku's router forwards a client's WebSocket ping to the dyno"
-unverified = "the pong does not show whether the dyno or the router answered; check after deploying the heartbeat by leaving the tunnel idle past client_idle_timeout (90 s) and confirming it stays registered"
+observed = "2026-11-09, mordor-production on Heroku (outpunch-ruby-rails 0.6.0, client_idle_timeout 90 s) with the StormSnap client on 0.6.0: the tunnel stayed registered for 6 min with no traffic but the client's 30 s pings (18:02:58 to 18:09:13 UTC; /health/stormsnap 200 on 24 of 24 polls; one connect, no reconnects, no evictions). The router answering pings itself would have left the dyno silent and evicted the client at 90 s. No vendor test: a pong does not show whether the dyno or the router answered"
