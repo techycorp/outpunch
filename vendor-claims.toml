@@ -50,3 +50,101 @@ verified_by = "adapters/ruby/rack/spec/vendor/puma_hijack_spec.rb::returns the c
 [[fake.claim]]
 behaviour = "after a full hijack the server writes nothing of its own, whatever the app returns"
 verified_by = "adapters/ruby/rack/spec/vendor/puma_hijack_spec.rb::writes nothing of its own to a fully hijacked socket, whatever the app returns"
+
+[[fake]]
+path = "spec/Tunnel.tla"
+vendor = "tokio"
+
+[[fake.claim]]
+behaviour = "when the inner future and the deadline become ready at the same instant, timeout returns the inner future's output"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_timeout_must_prefer_a_ready_inner_future_over_an_elapsed_deadline"
+
+[[fake.claim]]
+behaviour = "an mpsc Sender::send cancelled while waiting for capacity does not deliver its message"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_mpsc_send_must_not_deliver_when_cancelled_while_waiting_for_capacity"
+
+[[fake.claim]]
+behaviour = "dropping a oneshot Sender makes its receiver resolve to an error"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_oneshot_receiver_must_fail_when_its_sender_is_dropped"
+
+[[fake.claim]]
+behaviour = "aborting a task runs the destructors of the values its future holds"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_abort_must_run_destructors_of_the_tasks_locals"
+
+[[fake.claim]]
+behaviour = "shutting down a runtime drops the futures of its unfinished tasks, running their destructors"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_runtime_shutdown_must_run_destructors_of_unfinished_tasks"
+
+[[fake.claim]]
+behaviour = "a panic in a spawned task ends only that task, runs the destructors of its locals, and its JoinHandle reports the panic"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_panicking_task_must_run_destructors_and_leave_the_runtime_running"
+
+[[fake]]
+path = "spec/AxumBridge.tla"
+vendor = "tokio"
+
+[[fake.claim]]
+behaviour = "aborting a task runs the destructors of the values its future holds"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_abort_must_run_destructors_of_the_tasks_locals"
+
+[[fake.claim]]
+behaviour = "an mpsc Sender::send cancelled while waiting for capacity does not deliver its message"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_mpsc_send_must_not_deliver_when_cancelled_while_waiting_for_capacity"
+
+[[fake]]
+path = "spec/RubyGvl.tla"
+vendor = "tokio"
+
+[[fake.claim]]
+behaviour = "notify_one with no task waiting stores a permit that the next notified() consumes at once"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_notify_must_keep_a_permit_for_a_later_waiter"
+
+[[fake.claim]]
+behaviour = "dropping a tokio Mutex lock() future that is still waiting neither acquires the lock nor blocks later lockers"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_mutex_lock_cancelled_while_waiting_must_not_block_later_lockers"
+
+[[fake.claim]]
+behaviour = "aborting a task runs the destructors of the values its future holds"
+verified_by = "crates/outpunch/tests/vendor_tokio.rs::tokio_abort_must_run_destructors_of_the_tasks_locals"
+
+[[fake]]
+path = "spec/RubyGvl.tla"
+vendor = "ruby"
+
+[[fake.claim]]
+behaviour = "rb_thread_call_without_gvl2 returns without calling its function when the thread has an interrupt pending"
+verified_by = "bindings/ruby/spec/vendor/ruby_gvl_spec.rb::skips the function of rb_thread_call_without_gvl2 when an interrupt is pending"
+
+[[fake.claim]]
+behaviour = "a thread that holds the GVL while another thread waits for it gets an interrupt pending from the VM timer"
+verified_by = "bindings/ruby/spec/vendor/ruby_gvl_spec.rb::leaves a timer interrupt pending on a thread that holds the GVL while another waits"
+
+[[fake.claim]]
+behaviour = "Thread#raise on a thread blocked in rb_thread_call_without_gvl2 calls its unblocking function, lets the function return, and the exception is raised by rb_thread_check_ints"
+verified_by = "bindings/ruby/spec/vendor/ruby_gvl_spec.rb::calls the unblocking function on Thread#raise and raises the exception from rb_thread_check_ints"
+
+[[fake.claim]]
+behaviour = "Thread#wakeup on a thread blocked in rb_thread_call_without_gvl2 calls its unblocking function, and rb_thread_check_ints then raises nothing"
+verified_by = "bindings/ruby/spec/vendor/ruby_gvl_spec.rb::calls the unblocking function on Thread#wakeup and raises nothing"
+
+# Not a fake: production code that relies on a vendor behaviour (no model covers the Node adapter).
+[[fake]]
+path = "bindings/node/js/server.ts"
+vendor = "ws"
+
+[[fake.claim]]
+behaviour = "ws.send calls its callback only once the frame has been written to the socket, so it is held back while the peer is not reading"
+verified_by = "bindings/node/tests/vendor/ws.test.ts::ws send callback must wait while the peer is not reading"
+
+# Not a fake: production code that relies on a vendor behaviour.
+[[fake]]
+path = "adapters/ruby/rack/lib/outpunch/rack/connection.rb"
+vendor = "ruby"
+
+[[fake.claim]]
+behaviour = "write_nonblock with exception: false returns :wait_writable once a socket's buffers are full because the peer is not reading"
+verified_by = "adapters/ruby/rack/spec/vendor/ruby_io_spec.rb::returns :wait_writable from write_nonblock when the peer stops reading"
+
+[[fake.claim]]
+behaviour = "wait_writable with a timeout returns nil after about that long when the socket stays unwritable"
+verified_by = "adapters/ruby/rack/spec/vendor/ruby_io_spec.rb::returns nil from wait_writable after its timeout when the socket stays full"

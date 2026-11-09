@@ -25,7 +25,10 @@ vendor-claims:
 
 test-vendor:
 	cargo test -p outpunch-client --test vendor_rustls -- --ignored
+	cargo test -p outpunch --test vendor_tokio -- --ignored
+	cd bindings/ruby && bundle exec rake compile && bundle exec rspec --tag vendor
 	cd adapters/ruby/rack && bundle exec rspec --tag vendor
+	cd bindings/node && npx vitest run --config vitest.vendor.config.ts
 
 fmt:
 	cargo fmt
