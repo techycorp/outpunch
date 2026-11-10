@@ -49,6 +49,7 @@ CI fails if `openssl`, `openssl-sys` or `native-tls` appears in a lockfile.
 - [docs/product.md](docs/product.md) — Product overview, deployment modes, protocol spec, authentication model, integration strategy
 - [docs/architecture.md](docs/architecture.md) — Crate structure, core design (why it exists, plain types, channel-based WS interface), server framework adapter pattern, dependencies
 - [docs/testing.md](docs/testing.md) — Testing strategy: adapter conformance suite, core unit tests, integration tests, failure/edge cases, fuzz testing
+- [docs/logging.md](docs/logging.md) — Logging conventions: `tracing` in libraries, subscriber in binaries, format, levels, never-log list, event catalog
 - [docs/glossary.md](docs/glossary.md) — Term definitions: core, server framework adapter, tunnel client, tunnel request/response, standalone/embedded modes
 - [docs/project-structure.md](docs/project-structure.md) — Repo layout: Rust crates, language bindings directory structure, FFI tools per language, build/release strategy
 - [docs/phases.md](docs/phases.md) — Implementation phases: Phase 1 (core + axum + client), Phase 2 (Python bindings), Phase 3 (JS server adapter + Vite)
