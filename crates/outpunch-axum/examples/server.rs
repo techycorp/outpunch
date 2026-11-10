@@ -7,10 +7,18 @@ async fn main() {
     let secret = std::env::var("OUTPUNCH_SECRET").unwrap_or_else(|_| "dev-secret".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
 
+    let defaults = ServerConfig::default();
+    let seconds = |name: &str, default: Duration| {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map_or(default, Duration::from_secs)
+    };
     let server = OutpunchServer::new(ServerConfig {
         secret,
-        timeout: Duration::from_secs(25),
-        ..ServerConfig::default()
+        timeout: seconds("OUTPUNCH_TIMEOUT", defaults.timeout),
+        client_idle_timeout: seconds("OUTPUNCH_CLIENT_IDLE_TIMEOUT", defaults.client_idle_timeout),
+        ..defaults
     });
 
     let app = outpunch_axum::router(server);

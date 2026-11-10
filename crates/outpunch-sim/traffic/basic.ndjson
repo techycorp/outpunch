@@ -1,0 +1,20 @@
+# Normal traffic, local-service errors, a client restart, a client freeze long enough for both
+# heartbeats to fire, and a server restart. Made for short timeouts; `just sim` passes them.
+{"at_ms": 0, "method": "GET", "path": "/hello"}
+{"at_ms": 100, "method": "POST", "path": "/upload", "body": "some payload"}
+{"at_ms": 200, "path": "/burst/1"}
+{"at_ms": 200, "path": "/burst/2"}
+{"at_ms": 200, "path": "/burst/3"}
+{"at_ms": 200, "path": "/burst/4"}
+{"at_ms": 200, "path": "/burst/5"}
+{"at_ms": 300, "path": "/slow", "reply": {"delay_ms": 1500}}
+{"at_ms": 400, "path": "/missing", "reply": {"status": 404, "body": "not here"}}
+{"at_ms": 500, "path": "/broken", "reply": {"status": 500}}
+{"at_ms": 1000, "path": "/too-slow", "reply": {"delay_ms": 5000}}
+{"at_ms": 2000, "event": "client_restart"}
+{"at_ms": 8000, "path": "/after-client-restart"}
+{"at_ms": 9000, "event": "client_pause", "ms": 8000}
+{"at_ms": 9500, "path": "/while-client-frozen"}
+{"at_ms": 24000, "path": "/after-client-freeze"}
+{"at_ms": 25000, "event": "server_restart"}
+{"at_ms": 32000, "path": "/after-server-restart"}

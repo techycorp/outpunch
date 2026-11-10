@@ -1,0 +1,16 @@
+[package]
+name = "outpunch-sim"
+edition = "2024"
+publish = false
+description = "Runs an outpunch server, client and stand-in service, replays traffic from a file, and keeps each one's log"
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+axum = "0.8.8"
+clap = { version = "4", features = ["derive"] }
+reqwest = "0.13.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.50.0", features = ["full"] }

@@ -6,6 +6,7 @@ members = [
     "crates/outpunch-client",
     "bindings/python",
     "bindings/node",
+    "crates/outpunch-sim",
 ]
 
 [workspace.package]

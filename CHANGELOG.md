@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`just sim`**: a local simulator (`crates/outpunch-sim`, not published) that runs a server, a
+  client and a stand-in service, replays traffic from a file with failure events, and shows every
+  log live and in files.
+- **axum example server:** `OUTPUNCH_TIMEOUT` and `OUTPUNCH_CLIENT_IDLE_TIMEOUT` (seconds) set its
+  timeouts.
+
 ## v0.6.0
 
 ### Breaking changes

@@ -49,6 +49,13 @@ test-all: test test-python test-node
 coverage:
 	cargo tarpaulin -p outpunch -p outpunch-axum -p outpunch-client --out stdout
 
+# Replay a traffic file through a local server and client, keeping every log (crates/outpunch-sim/README.md)
+sim file="crates/outpunch-sim/traffic/basic.ndjson" *args="--request-timeout 3 --client-idle-timeout 4 --ping-interval 1 --idle-timeout 3":
+	cargo build -q -p outpunch-sim
+	cargo build -q -p outpunch-client --bin outpunch-client
+	cargo build -q -p outpunch-axum --example server
+	target/debug/outpunch-sim {{file}} {{args}}
+
 # TLA+ models (spec/); see spec/README.md
 tla cfg="Tunnel" *args:
 	scripts/tla/tlc spec/Tunnel.tla spec/{{cfg}}.cfg {{args}}

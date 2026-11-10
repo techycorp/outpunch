@@ -1297,6 +1297,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "outpunch-sim"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -86,6 +86,13 @@ runs do, in [spec/HOW-IT-WORKS.md](../spec/HOW-IT-WORKS.md).
 - When changing modeled code, follow "Keeping models in step with the code" in
   [spec/README.md](../spec/README.md): the models do not update themselves.
 
+## Local Simulation
+
+`just sim` runs the axum example server and the client CLI as real processes, plus a stand-in local
+service, replays a traffic file through the tunnel (with events: freeze, kill or restart the client,
+restart the server), and keeps each part's log, interleaved and live in the terminal. For looking at
+behavior and logs, not a test suite: see [crates/outpunch-sim/README.md](../crates/outpunch-sim/README.md).
+
 ## Structure
 
 ```
