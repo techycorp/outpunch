@@ -30,6 +30,10 @@ One line per event: UTC timestamp, level, target (the module), message, then fie
 
 - **Message:** a short lowercase phrase saying what happened, the same text every time. Anything that
   varies goes in a field, never in the message, so lines can be searched and counted.
+- **Values:** identifiers, numbers and fixed words are bare (`reason=idle`); free text that can
+  contain spaces (`error`, a peer's message) is quoted (`error="connection refused"`). In code: `%`
+  or a plain value for the first, `?` on a `String` for the second.
+- **Color:** only when stderr is a terminal; log files and platform logs get plain text.
 - **Fields** (snake_case, the same name everywhere):
 
 | Field | Meaning |
@@ -89,12 +93,16 @@ The catalog. An event not listed here is added here first.
 
 | Level | Message | Fields |
 |---|---|---|
+| info | `starting` (CLI only) | `server` (URL without query), `service`, `forward_to` |
 | info | `connecting` | `server` (URL without query), `service` |
+| warn | `connect failed` | `error` |
 | info | `authenticated` | `service` |
 | error | `auth rejected` | `reason` (the server's message) |
-| info | `connection closed` | `reason` (`server_closed`, `idle`, `write_timeout`, `error`), `duration_s`, `error` |
-| info | `reconnecting` | `delay_s` |
 | warn | `no message from the server; reconnecting` | `idle_s` |
+| warn | `write to the server timed out; reconnecting` | `wait_s` |
+| info | `connection closed` | `reason` (`server_closed`, `auth_rejected`, `idle`, `write_timeout`), `duration_s` |
+| warn | `connection closed` | `reason=error`, `duration_s`, `error` (anything else: a reset, a protocol error) |
+| info | `reconnecting` | `delay_s` |
 | info | `request` | `req`, `method`, `path`, `status`, `duration_ms` (one line when it completes) |
 | warn | `local service failed` | `req`, `status` (502 or 504), `error` |
 

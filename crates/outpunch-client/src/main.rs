@@ -46,11 +46,13 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-
-    eprintln!("outpunch-client");
-    eprintln!("  server:     {}", args.server_url);
-    eprintln!("  service:    {}", args.service);
-    eprintln!("  forward_to: {}", args.forward_to);
+    outpunch_client::init_stderr_logging("info");
+    tracing::info!(
+        server = %args.server_url.split('?').next().unwrap_or(&args.server_url),
+        service = %args.service,
+        forward_to = %args.forward_to,
+        "starting"
+    );
 
     let config = ClientConfig {
         server_url: args.server_url,

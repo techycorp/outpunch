@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::time::Duration;
+use std::fmt;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -7,8 +8,64 @@ use futures_util::{SinkExt, StreamExt};
 use outpunch::protocol::{self, AuthMessage, Message, TunnelRequest, TunnelResponse};
 use tokio_tungstenite::connect_async_tls_with_config;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tracing::{error, info, warn};
 
 mod tls;
+
+/// Why a connection ended, for the errors a caller may want to tell apart. Returned inside the
+/// boxed error of [`run_connection`]; other failures (protocol errors, resets) are left as they are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectionError {
+    /// The server could not be reached or the WebSocket handshake failed.
+    Connect(String),
+    /// The server refused the secret or service; its message.
+    AuthRejected(String),
+    /// Nothing, not even a pong, arrived from the server within the idle timeout.
+    ServerSilent(Duration),
+    /// A write to the server did not finish within the idle timeout.
+    WriteTimedOut(Duration),
+}
+
+impl fmt::Display for ConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connect(e) => write!(f, "could not connect: {e}"),
+            Self::AuthRejected(message) => write!(f, "auth rejected: {message}"),
+            Self::ServerSilent(idle) => {
+                write!(f, "no message from the server in {}s", idle.as_secs())
+            }
+            Self::WriteTimedOut(limit) => {
+                write!(f, "a write to the server took over {}s", limit.as_secs())
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConnectionError {}
+
+/// Prints outpunch's log events to stderr (docs/logging.md, Format), filtered by `RUST_LOG` or,
+/// when that is unset, by `default_filter` (an `EnvFilter` directive such as `info`). For binaries
+/// and bindings; the library itself never calls it. Does nothing if the process already has a
+/// subscriber.
+pub fn init_stderr_logging(default_filter: &str) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
+        .with_env_filter(filter)
+        .try_init();
+}
+
+/// The first 8 characters of a request id, as logged.
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
+/// A server URL as logged: without any query string.
+fn loggable_url(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -45,12 +102,38 @@ impl Default for ClientConfig {
 /// Run the tunnel client forever, reconnecting on failure.
 pub async fn run(config: &ClientConfig) {
     loop {
-        match run_connection(config).await {
-            Ok(()) => eprintln!("connection closed"),
-            Err(e) => eprintln!("error: {e}"),
-        }
-        eprintln!("reconnecting in {}s...", config.reconnect_delay.as_secs());
+        let started = Instant::now();
+        let result = run_connection(config).await;
+        log_end(&result, started.elapsed());
+        info!(delay_s = config.reconnect_delay.as_secs(), "reconnecting");
         tokio::time::sleep(config.reconnect_delay).await;
+    }
+}
+
+/// Logs how a connection attempt ended (docs/logging.md, client events).
+fn log_end(result: &Result<(), Box<dyn std::error::Error + Send + Sync>>, duration: Duration) {
+    let duration_s = duration.as_secs();
+    let Err(e) = result else {
+        info!(reason = %"server_closed", duration_s, "connection closed");
+        return;
+    };
+    match e.downcast_ref::<ConnectionError>() {
+        Some(ConnectionError::Connect(e)) => warn!(error = ?e, "connect failed"),
+        Some(ConnectionError::AuthRejected(_)) => {
+            info!(reason = %"auth_rejected", duration_s, "connection closed")
+        }
+        Some(ConnectionError::ServerSilent(_)) => {
+            info!(reason = %"idle", duration_s, "connection closed")
+        }
+        Some(ConnectionError::WriteTimedOut(_)) => {
+            info!(reason = %"write_timeout", duration_s, "connection closed")
+        }
+        None => warn!(
+            reason = %"error",
+            duration_s,
+            error = ?e.to_string(),
+            "connection closed"
+        ),
     }
 }
 
@@ -58,10 +141,15 @@ pub async fn run(config: &ClientConfig) {
 pub async fn run_connection(
     config: &ClientConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!("connecting to {}...", config.server_url);
+    info!(
+        server = %loggable_url(&config.server_url),
+        service = %config.service,
+        "connecting"
+    );
     let (ws_stream, _) =
         connect_async_tls_with_config(&config.server_url, None, false, Some(tls::connector()?))
-            .await?;
+            .await
+            .map_err(|e| ConnectionError::Connect(e.to_string()))?;
     let (mut ws_sink, mut ws_stream) = ws_stream.split();
 
     authenticate(&mut ws_sink, &mut ws_stream, config).await?;
@@ -82,7 +170,6 @@ pub async fn run_connection(
     loop {
         tokio::select! {
             Some(response) = response_rx.recv() => {
-                eprintln!("[{:.8}] -> {}", response.request_id, response.status);
                 let text = WsMessage::text(protocol::serialize_response(&response));
                 send_within(&mut ws_sink, text, config.idle_timeout).await?;
             }
@@ -100,12 +187,20 @@ pub async fn run_connection(
                 };
                 match protocol::parse_message(&text) {
                     Ok(Message::Request(req)) => {
-                        eprintln!("[{:.8}] {} /{}", req.request_id, req.method, req.path);
                         let http_client = http_client.clone();
                         let config = config.clone();
                         let response_tx = response_tx.clone();
                         in_flight.spawn(async move {
+                            let started = Instant::now();
                             let response = forward_request(&http_client, &config, &req).await;
+                            info!(
+                                req = %short_id(&req.request_id),
+                                method = %req.method,
+                                path = %format!("/{}", req.path),
+                                status = response.status,
+                                duration_ms = started.elapsed().as_millis() as u64,
+                                "request"
+                            );
                             let _ = response_tx.send(response);
                         });
                     }
@@ -117,11 +212,11 @@ pub async fn run_connection(
                 send_within(&mut ws_sink, WsMessage::Ping(vec![].into()), config.idle_timeout).await?;
             }
             _ = tokio::time::sleep_until(last_heard + config.idle_timeout) => {
-                return Err(format!(
-                    "no message from the server in {}s; reconnecting",
-                    config.idle_timeout.as_secs()
-                )
-                .into());
+                warn!(
+                    idle_s = config.idle_timeout.as_secs(),
+                    "no message from the server; reconnecting"
+                );
+                return Err(ConnectionError::ServerSilent(config.idle_timeout).into());
             }
         }
     }
@@ -141,7 +236,13 @@ where
 {
     match tokio::time::timeout(limit, ws_sink.send(msg)).await {
         Ok(sent) => Ok(sent?),
-        Err(_) => Err(format!("a write to the server took over {}s", limit.as_secs()).into()),
+        Err(_) => {
+            warn!(
+                wait_s = limit.as_secs(),
+                "write to the server timed out; reconnecting"
+            );
+            Err(ConnectionError::WriteTimedOut(limit).into())
+        }
     }
 }
 
@@ -180,10 +281,13 @@ async fn authenticate(
 
     match protocol::parse_message(&text)? {
         Message::AuthOk(_) => {
-            eprintln!("authenticated");
+            info!(service = %config.service, "authenticated");
             Ok(())
         }
-        Message::AuthError(e) => Err(format!("auth rejected: {}", e.message).into()),
+        Message::AuthError(e) => {
+            error!(reason = ?e.message, "auth rejected");
+            Err(ConnectionError::AuthRejected(e.message).into())
+        }
         _ => Err("unexpected message during auth".into()),
     }
 }
@@ -236,10 +340,28 @@ pub async fn forward_request(
             }
         }
         Err(e) if e.is_timeout() => {
+            warn!(
+                req = %short_id(&req.request_id),
+                status = 504,
+                error = %"timeout",
+                "local service failed"
+            );
             protocol::error_response(&req.request_id, 504, "local service timeout")
         }
         Err(e) => {
-            protocol::error_response(&req.request_id, 502, &format!("local service error: {e}"))
+            let response = protocol::error_response(
+                &req.request_id,
+                502,
+                &format!("local service error: {e}"),
+            );
+            // without_url: the URL can carry the request's query string, which is never logged.
+            warn!(
+                req = %short_id(&req.request_id),
+                status = 502,
+                error = ?e.without_url().to_string(),
+                "local service failed"
+            );
+            response
         }
     }
 }

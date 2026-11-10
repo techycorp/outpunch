@@ -152,6 +152,9 @@ fn run_connection(ruby: &Ruby, config: &ClientConfig) -> Result<(), Error> {
 
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
+    // Only the client's events, to stderr, as its lines always have been; server events stay off
+    // until they are routed into Ruby's logging (docs/logging.md, Mechanism). RUST_LOG overrides.
+    outpunch_client::init_stderr_logging("outpunch_client=info");
     let module = ruby.define_module("Outpunch")?;
 
     let config_class = module.define_class("ClientConfig", ruby.class_object())?;

@@ -7,6 +7,85 @@ use tokio::net::TcpListener;
 
 use super::*;
 
+/// Records log events in memory for the current thread, so a test can assert what was logged.
+/// `#[tokio::test]` runs on one thread, so tasks the test spawns log into the same recorder.
+mod capture {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+
+    #[derive(Debug, Clone)]
+    pub struct Event {
+        pub level: tracing::Level,
+        pub fields: BTreeMap<String, String>,
+    }
+
+    impl Event {
+        pub fn message(&self) -> &str {
+            self.field("message").unwrap_or("")
+        }
+
+        pub fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub struct Captured(Arc<Mutex<Vec<Event>>>);
+
+    impl Captured {
+        pub fn events(&self) -> Vec<Event> {
+            self.0.lock().unwrap().clone()
+        }
+
+        /// The first event with this message; panics with everything captured if none.
+        pub fn find(&self, message: &str) -> Event {
+            let events = self.events();
+            events
+                .iter()
+                .find(|e| e.message() == message)
+                .cloned()
+                .unwrap_or_else(|| panic!("no {message:?} event in {events:#?}"))
+        }
+    }
+
+    struct Recorder(Captured);
+
+    impl<S: tracing::Subscriber> Layer<S> for Recorder {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+            let mut fields = Fields(BTreeMap::new());
+            event.record(&mut fields);
+            (self.0).0.lock().unwrap().push(Event {
+                level: *event.metadata().level(),
+                fields: fields.0,
+            });
+        }
+    }
+
+    struct Fields(BTreeMap<String, String>);
+
+    impl Visit for Fields {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_string(), value.to_string());
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .insert(field.name().to_string(), format!("{value:?}"));
+        }
+    }
+
+    /// Starts recording; recording stops when the guard is dropped.
+    pub fn start() -> (Captured, tracing::subscriber::DefaultGuard) {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::registry().with(Recorder(captured.clone()));
+        (captured, tracing::subscriber::set_default(subscriber))
+    }
+}
+
 // --- forward_url ---
 
 #[test]
@@ -116,12 +195,25 @@ async fn forward_request_returns_502_when_service_unreachable() {
         forward_to: "http://127.0.0.1:1".to_string(), // nothing listening
         ..ClientConfig::default()
     };
-    let req = make_request("test", HashMap::new());
+    let req = make_request("test", HashMap::from([("token".into(), "q-secret".into())]));
+    let (logs, _guard) = capture::start();
 
     let resp = forward_request(&client, &config, &req).await;
 
     assert_eq!(resp.status, 502);
     assert!(resp.body.as_ref().unwrap().contains("error"));
+    let event = logs.find("local service failed");
+    assert_eq!(event.level, tracing::Level::WARN);
+    assert_eq!(event.field("status"), Some("502"));
+    assert_eq!(event.field("req"), Some(short_id(&req.request_id)));
+    // The error names no URL, so the query string stays out of the logs.
+    assert!(
+        logs.events()
+            .iter()
+            .all(|e| e.fields.values().all(|v| !v.contains("q-secret"))),
+        "{:#?}",
+        logs.events()
+    );
 }
 
 #[tokio::test]
@@ -327,9 +419,20 @@ async fn run_connection_fails_with_wrong_secret() {
         ..ClientConfig::default()
     };
 
+    let (logs, _guard) = capture::start();
     let result = run_connection(&config).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("auth rejected"));
+    let event = logs.find("auth rejected");
+    assert_eq!(event.level, tracing::Level::ERROR);
+    assert!(event.field("reason").unwrap().contains("invalid token"));
+    assert!(
+        logs.events()
+            .iter()
+            .all(|e| e.fields.values().all(|v| !v.contains("wrong-secret"))),
+        "the secret was logged: {:#?}",
+        logs.events()
+    );
 }
 
 #[tokio::test]
@@ -612,6 +715,7 @@ async fn run_connection_gives_up_on_a_server_that_stops_answering() {
     })
     .await;
 
+    let (logs, _guard) = capture::start();
     let started = std::time::Instant::now();
     let result = tokio::time::timeout(
         Duration::from_secs(10),
@@ -622,6 +726,9 @@ async fn run_connection_gives_up_on_a_server_that_stops_answering() {
     let err = result.unwrap_err().to_string();
     assert!(err.contains("no message from the server"), "{err}");
     assert!(started.elapsed() >= Duration::from_millis(900));
+    let event = logs.find("no message from the server; reconnecting");
+    assert_eq!(event.level, tracing::Level::WARN);
+    assert_eq!(event.field("idle_s"), Some("1"));
 }
 
 #[tokio::test]
@@ -681,6 +788,117 @@ async fn heartbeat_continues_while_a_slow_request_is_in_flight() {
     assert!(
         !conn_handle.is_finished(),
         "the client dropped the connection"
+    );
+    conn_handle.abort();
+}
+
+#[test]
+fn log_end_names_how_each_connection_ended() {
+    let cases: Vec<(
+        Result<(), Box<dyn std::error::Error + Send + Sync>>,
+        &str,
+        &str,
+        tracing::Level,
+    )> = vec![
+        (
+            Ok(()),
+            "connection closed",
+            "server_closed",
+            tracing::Level::INFO,
+        ),
+        (
+            Err(ConnectionError::AuthRejected("invalid token".into()).into()),
+            "connection closed",
+            "auth_rejected",
+            tracing::Level::INFO,
+        ),
+        (
+            Err(ConnectionError::ServerSilent(Duration::from_secs(75)).into()),
+            "connection closed",
+            "idle",
+            tracing::Level::INFO,
+        ),
+        (
+            Err(ConnectionError::WriteTimedOut(Duration::from_secs(75)).into()),
+            "connection closed",
+            "write_timeout",
+            tracing::Level::INFO,
+        ),
+        (
+            Err("connection reset".into()),
+            "connection closed",
+            "error",
+            tracing::Level::WARN,
+        ),
+    ];
+    for (result, message, reason, level) in cases {
+        let (logs, _guard) = capture::start();
+        log_end(&result, Duration::from_secs(42));
+        let event = logs.find(message);
+        assert_eq!(
+            (
+                event.field("reason"),
+                event.level,
+                event.field("duration_s")
+            ),
+            (Some(reason), level, Some("42"))
+        );
+    }
+
+    let (logs, _guard) = capture::start();
+    log_end(
+        &Err(ConnectionError::Connect("refused".into()).into()),
+        Duration::ZERO,
+    );
+    assert_eq!(logs.find("connect failed").level, tracing::Level::WARN);
+}
+
+#[tokio::test]
+async fn each_request_is_logged_once_with_its_path_and_status_but_not_its_query() {
+    let ws_url = start_outpunch_server("test-secret").await;
+    let local_url =
+        start_local_server(Router::new().route("/api/hello", get(|| async { "world" }))).await;
+    let config = ClientConfig {
+        server_url: ws_url.clone(),
+        secret: "test-secret".to_string(),
+        service: "my-service".to_string(),
+        forward_to: local_url,
+        ..ClientConfig::default()
+    };
+    let (logs, _guard) = capture::start();
+    let conn_handle = tokio::spawn(async move { run_connection(&config).await });
+
+    let http_url = ws_url.replace("ws://", "http://").replace("/ws", "");
+    wait_for_tunnel(&format!("{http_url}/tunnel/my-service/api/hello")).await;
+    let resp = reqwest::get(format!(
+        "{http_url}/tunnel/my-service/api/hello?token=q-secret"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let logged: Vec<_> = logs
+        .events()
+        .into_iter()
+        .filter(|e| e.message() == "request")
+        .collect();
+    let last = logged.last().expect("no request event");
+    assert_eq!(last.level, tracing::Level::INFO);
+    assert_eq!(
+        (
+            last.field("method"),
+            last.field("path"),
+            last.field("status")
+        ),
+        (Some("GET"), Some("/api/hello"), Some("200"))
+    );
+    assert!(last.field("duration_ms").is_some());
+    assert!(
+        logs.events()
+            .iter()
+            .all(|e| e.fields.values().all(|v| !v.contains("q-secret"))),
+        "the query string was logged: {:#?}",
+        logs.events()
     );
     conn_handle.abort();
 }

@@ -108,6 +108,9 @@ fn run_connection<'py>(py: Python<'py>, config: &ClientConfig) -> PyResult<Bound
 
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // The client's events go to stderr, as its lines always have, until they are routed into
+    // Python's logging (docs/logging.md, Mechanism). RUST_LOG overrides the filter.
+    outpunch_client::init_stderr_logging("outpunch_client=info");
     m.add_class::<ClientConfig>()?;
     m.add_function(wrap_pyfunction!(run, m)?)?;
     m.add_function(wrap_pyfunction!(run_connection, m)?)?;
