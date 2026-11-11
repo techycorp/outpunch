@@ -356,15 +356,14 @@ async fn timed_out_requests_are_not_delivered_later() {
         received <= REQUESTS / 4,
         "{received} of {REQUESTS} requests reached the client after their callers got 504"
     );
+    // Whether any drop is logged depends on timing: if the reader gives up first, the stale
+    // requests are discarded with the connection, not dropped one by one. So only the level of
+    // any drops is checked here.
     let dropped = logs
         .events()
         .into_iter()
         .filter(|e| e.message() == "dropped request whose caller was already answered")
         .collect::<Vec<_>>();
-    assert!(
-        !dropped.is_empty(),
-        "no stale request was logged as dropped"
-    );
     assert!(dropped.iter().all(|e| e.level == tracing::Level::DEBUG));
 }
 

@@ -191,5 +191,8 @@ Close": adapters cannot pass the core a reason when they close a connection.
   `uv run pytest` fails locally; `uv run python -m pytest` works. CI builds a fresh venv.
 - GitHub Actions warns that `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`,
   `upload-artifact@v4` and `astral-sh/setup-uv@v4` target the deprecated Node 20.
+- No test reliably asserts the F5 drop event (`dropped request whose caller was already answered`):
+  whether a stale request reaches the front of the queue before the connection closes depends on
+  timing. A deterministic test needs a way to hold a stale request in the write queue.
 - `wait_s` and `idle_s` log whole seconds, so a sub-second timeout (tests, short `just sim` runs) logs
   `0`.
