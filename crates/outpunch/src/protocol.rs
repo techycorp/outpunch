@@ -119,6 +119,11 @@ pub fn parse_message(raw: &str) -> Result<Message, String> {
     }
 }
 
+/// The first 8 characters of a request id, as logged (docs/logging.md, `req`).
+pub fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
 /// The `request_id` of a `request` message, without copying its other fields; `None` for
 /// any other message or unparsable JSON.
 pub fn request_id_of(raw: &str) -> Option<String> {

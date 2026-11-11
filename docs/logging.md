@@ -44,7 +44,7 @@ One line per event: time, level, target (the module), message, then fields as `k
 | Field | Meaning |
 |---|---|
 | `conn` | server-side connection id (a counter, unique per server process) |
-| `service` | service name |
+| `service` | service name; `-` on a server connection that has not authenticated yet |
 | `req` | request id, first 8 characters |
 | `method`, `path` | the tunneled request; path without the query string |
 | `status` | HTTP status |

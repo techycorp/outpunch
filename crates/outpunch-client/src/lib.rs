@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use futures_util::{SinkExt, StreamExt};
-use outpunch::protocol::{self, AuthMessage, Message, TunnelRequest, TunnelResponse};
+use outpunch::protocol::{self, AuthMessage, Message, TunnelRequest, TunnelResponse, short_id};
 use tokio_tungstenite::connect_async_tls_with_config;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tracing::{error, info, warn};
@@ -47,11 +47,6 @@ impl std::error::Error for ConnectionError {}
 /// [`outpunch::logging::init_stderr`]. For binaries and bindings; the library itself never calls it.
 pub fn init_stderr_logging(default_filter: &str) {
     outpunch::logging::init_stderr(default_filter);
-}
-
-/// The first 8 characters of a request id, as logged.
-fn short_id(id: &str) -> &str {
-    id.get(..8).unwrap_or(id)
 }
 
 /// A server URL as logged: without any query string.

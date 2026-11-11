@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, info, warn};
 
-use crate::protocol::{self, IncomingRequest, Message, TunnelRequest, TunnelResponse};
+use crate::protocol::{self, IncomingRequest, Message, TunnelRequest, TunnelResponse, short_id};
 
 /// Why a tunnel request failed before the client produced a response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +136,9 @@ impl OutpunchServer {
                 incoming_tx: std::sync::Mutex::new(Some(incoming_tx)),
                 last_heard: std::sync::Mutex::new(tokio::time::Instant::now()),
                 callback: std::sync::Mutex::new(None),
+                service: OnceLock::new(),
+                registered_at: OnceLock::new(),
+                end_reason: Mutex::new(None),
                 run_state: std::sync::Mutex::new(Some(ConnectionRunState {
                     incoming_rx,
                     outgoing_rx,
@@ -175,6 +179,11 @@ impl OutpunchServer {
             let mut state = self.state.lock().unwrap();
             let Some(conn) = state.services.get(&tunnel_req.service) else {
                 trace_event!({"ev": "start", "req": request_id, "svc": tunnel_req.service, "conn": null});
+                debug!(
+                    req = %short_id(&request_id),
+                    service = %tunnel_req.service,
+                    "no client for service"
+                );
                 return Err(TunnelError::NotConnected);
             };
             let conn_id = conn.conn_id;
@@ -210,11 +219,17 @@ impl OutpunchServer {
             response
         };
 
-        #[cfg_attr(not(feature = "trace"), allow(clippy::unnecessary_lazy_evaluations))]
+        let started = tokio::time::Instant::now();
         let result = tokio::time::timeout(timeout, exchange)
             .await
             .unwrap_or_else(|_| {
                 trace_event!({"ev": "timeout", "req": request_id});
+                warn!(
+                    req = %short_id(&request_id),
+                    service = %tunnel_req.service,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "request timed out"
+                );
                 Err(TunnelError::Timeout)
             });
         #[cfg(feature = "trace")]
@@ -246,8 +261,9 @@ impl OutpunchServer {
     }
 
     /// Unregister a connection and fail the requests still waiting on it. A newer
-    /// connection registered under the same service is left in place.
-    fn cleanup_connection(&self, service: &str, conn_id: u64) {
+    /// connection registered under the same service is left in place. Returns how many
+    /// requests it failed.
+    fn cleanup_connection(&self, service: &str, conn_id: u64) -> usize {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let ours = state
             .services
@@ -267,9 +283,11 @@ impl OutpunchServer {
         if ours {
             state.services.remove(service);
         }
+        let before = state.pending.len();
         state
             .pending
             .retain(|_, pending| pending.conn_id != conn_id);
+        before - state.pending.len()
     }
 }
 
@@ -296,15 +314,33 @@ impl Drop for PendingGuard<'_> {
 
 /// Runs `cleanup_connection` when `run()` ends after registering, on every path: the relay
 /// loop ending, or the `run()` future being dropped (task abort, `select!`, runtime shutdown).
+/// Logs `connection closed` with why.
 struct CleanupGuard<'a> {
-    server: &'a OutpunchServer,
+    conn: &'a ConnectionInner,
     service: &'a str,
-    conn_id: u64,
+    /// `run()` reached its end; still false when the `run()` future was dropped.
+    finished: bool,
 }
 
 impl Drop for CleanupGuard<'_> {
     fn drop(&mut self) {
-        self.server.cleanup_connection(self.service, self.conn_id);
+        let conn = self.conn;
+        let failed = conn.server.cleanup_connection(self.service, conn.id);
+        let reason = conn
+            .end_reason()
+            .unwrap_or(if self.finished { "closed" } else { "dropped" });
+        let duration_s = conn
+            .registered_at
+            .get()
+            .map_or(0, |at| at.elapsed().as_secs());
+        info!(
+            conn = conn.id,
+            service = %self.service,
+            reason = %reason,
+            failed,
+            duration_s,
+            "connection closed"
+        );
     }
 }
 
@@ -317,6 +353,12 @@ impl Drop for CloseOnDrop {
         if let Some(inner) = self.0.upgrade() {
             if std::thread::panicking() {
                 trace_event!({"ev": "drain_death", "conn": inner.id});
+                error!(
+                    conn = inner.id,
+                    service = %inner.service_name(),
+                    "outgoing message callback panicked; closing connection"
+                );
+                inner.set_end_reason("drain_died");
             }
             Connection { inner }.close();
         }
@@ -352,6 +394,30 @@ struct ConnectionInner {
     last_heard: std::sync::Mutex<tokio::time::Instant>,
     callback: std::sync::Mutex<Option<MessageCallback>>,
     run_state: std::sync::Mutex<Option<ConnectionRunState>>,
+    /// The service it registered for, once authenticated.
+    service: OnceLock<String>,
+    registered_at: OnceLock<tokio::time::Instant>,
+    /// Why the connection ended, when something other than a plain close ended it; the first
+    /// cause recorded wins.
+    end_reason: Mutex<Option<&'static str>>,
+}
+
+impl ConnectionInner {
+    fn set_end_reason(&self, reason: &'static str) {
+        self.end_reason
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert(reason);
+    }
+
+    fn end_reason(&self) -> Option<&'static str> {
+        *self.end_reason.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The service name for log lines; `-` before authentication.
+    fn service_name(&self) -> &str {
+        self.service.get().map_or("-", String::as_str)
+    }
 }
 
 /// A tunnel client connection. Created by `OutpunchServer::create_connection()`.
@@ -378,6 +444,16 @@ impl WeakConnection {
 }
 
 impl Connection {
+    /// The connection's id, as logged in `conn` (unique within this server process).
+    pub fn id(&self) -> u64 {
+        self.inner.id
+    }
+
+    /// The service the client registered for; `None` until it has authenticated.
+    pub fn service(&self) -> Option<String> {
+        self.inner.service.get().cloned()
+    }
+
     pub fn downgrade(&self) -> WeakConnection {
         WeakConnection {
             inner: Arc::downgrade(&self.inner),
@@ -511,12 +587,24 @@ impl Connection {
             });
             replaced
         };
-        let cleanup = CleanupGuard {
-            server: &self.inner.server,
+        let _ = self.inner.service.set(service.clone());
+        let _ = self.inner.registered_at.set(tokio::time::Instant::now());
+        match replaced.as_ref().map(|handle| handle.conn_id) {
+            Some(old) => warn!(
+                service = %service,
+                conn = self.inner.id,
+                replaced = old,
+                "service registered; older connection replaced"
+            ),
+            None => info!(service = %service, conn = self.inner.id, "service registered"),
+        }
+        let mut cleanup = CleanupGuard {
+            conn: &self.inner,
             service: &service,
-            conn_id: self.inner.id,
+            finished: false,
         };
         if let Some(old) = replaced.and_then(|handle| handle.connection.upgrade()) {
+            old.set_end_reason("replaced");
             old.incoming_tx.lock().unwrap().take();
         }
         trace_event!({"ev": "kick", "conn": self.inner.id});
@@ -540,28 +628,43 @@ impl Connection {
                         break;
                     };
                     #[cfg_attr(not(feature = "trace"), allow(unused_variables))]
-                    let completed = self.deliver_response(&raw);
+                    let completed = match self.deliver_response(&raw) {
+                        Ok(request_id) => Some(request_id),
+                        Err(reason) => {
+                            debug!(conn = self.inner.id, reason = %reason, "ignored client message");
+                            None
+                        }
+                    };
                     trace_event!({"ev": "relay", "conn": self.inner.id, "req": completed});
                 }
                 _ = tokio::time::sleep_until(deadline) => {
                     if self.inner.last_heard.lock().unwrap().elapsed() >= idle_timeout {
                         trace_event!({"ev": "idle", "conn": self.inner.id});
+                        warn!(
+                            conn = self.inner.id,
+                            service = %service,
+                            idle_s = idle_timeout.as_secs(),
+                            "client silent; evicting"
+                        );
+                        self.inner.set_end_reason("idle");
                         break;
                     }
                 }
             }
         }
 
+        cleanup.finished = true;
         drop(cleanup);
         drop(outgoing_tx);
         let _ = drain_handle.await;
     }
 
     /// Hand a client's response to the request waiting for it, if that request was sent to
-    /// this connection. Returns the id of the request it completed.
-    fn deliver_response(&self, raw: &str) -> Option<String> {
+    /// this connection. Returns the id of the request it completed, or why it ignored the
+    /// message.
+    fn deliver_response(&self, raw: &str) -> Result<String, &'static str> {
         let Ok(Message::Response(response)) = protocol::parse_message(raw) else {
-            return None;
+            return Err("not_a_response");
         };
         let mut state = self.inner.server.state.lock().unwrap();
         let ours = state
@@ -569,12 +672,15 @@ impl Connection {
             .get(&response.request_id)
             .is_some_and(|pending| pending.conn_id == self.inner.id);
         if !ours {
-            return None;
+            return Err("unknown_request");
         }
-        let pending = state.pending.remove(&response.request_id)?;
+        let pending = state
+            .pending
+            .remove(&response.request_id)
+            .ok_or("unknown_request")?;
         let request_id = response.request_id.clone();
         let _ = pending.tx.send(response);
-        Some(request_id)
+        Ok(request_id)
     }
 
     async fn handle_auth(
@@ -585,6 +691,7 @@ impl Connection {
         let auth_timeout = self.inner.server.state.lock().unwrap().config.auth_timeout;
         let Ok(raw) = tokio::time::timeout(auth_timeout, incoming_rx.recv()).await else {
             trace_event!({"ev": "auth_end", "conn": self.inner.id});
+            info!(conn = self.inner.id, reason = %"timeout", "auth not completed");
             let err = protocol::AuthError {
                 msg_type: "auth_error".to_string(),
                 message: "auth timeout".to_string(),
@@ -595,6 +702,7 @@ impl Connection {
         #[cfg_attr(not(feature = "trace"), allow(clippy::question_mark))]
         let Some(raw) = raw else {
             trace_event!({"ev": "auth_end", "conn": self.inner.id});
+            info!(conn = self.inner.id, reason = %"closed", "auth not completed");
             return None;
         };
 
@@ -602,6 +710,7 @@ impl Connection {
             Ok(Message::Auth(auth)) => auth,
             _ => {
                 trace_event!({"ev": "auth", "conn": self.inner.id, "ok": false});
+                warn!(conn = self.inner.id, reason = %"not_auth", "auth rejected");
                 let err = protocol::AuthError {
                     msg_type: "auth_error".to_string(),
                     message: "expected auth message".to_string(),
@@ -611,13 +720,20 @@ impl Connection {
             }
         };
 
-        let valid = {
+        // The token itself is never logged (docs/logging.md, Never log).
+        let rejection = {
             let state = self.inner.server.state.lock().unwrap();
-            !state.config.secret.is_empty() && constant_time_eq(&msg.token, &state.config.secret)
+            if state.config.secret.is_empty() {
+                Some("secret_not_set")
+            } else if !constant_time_eq(&msg.token, &state.config.secret) {
+                Some("invalid_token")
+            } else {
+                None
+            }
         };
-
-        trace_event!({"ev": "auth", "conn": self.inner.id, "ok": valid});
-        if !valid {
+        trace_event!({"ev": "auth", "conn": self.inner.id, "ok": rejection.is_none()});
+        if let Some(reason) = rejection {
+            warn!(conn = self.inner.id, reason = %reason, "auth rejected");
             let err = protocol::AuthError {
                 msg_type: "auth_error".to_string(),
                 message: "invalid token".to_string(),
@@ -626,6 +742,7 @@ impl Connection {
             return None;
         }
 
+        info!(conn = self.inner.id, service = %msg.service, "client authenticated");
         Some(msg.service)
     }
 }

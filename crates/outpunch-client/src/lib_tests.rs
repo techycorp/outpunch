@@ -20,6 +20,8 @@ mod capture {
     #[derive(Debug, Clone)]
     pub struct Event {
         pub level: tracing::Level,
+        /// The module that logged it, e.g. `outpunch_client` or `outpunch::server`.
+        pub target: String,
         pub fields: BTreeMap<String, String>,
     }
 
@@ -43,12 +45,17 @@ mod capture {
 
         /// The first event with this message; panics with everything captured if none.
         pub fn find(&self, message: &str) -> Event {
+            self.find_from("", message)
+        }
+
+        /// The first event with this message from a target starting with `target`.
+        pub fn find_from(&self, target: &str, message: &str) -> Event {
             let events = self.events();
             events
                 .iter()
-                .find(|e| e.message() == message)
+                .find(|e| e.message() == message && e.target.starts_with(target))
                 .cloned()
-                .unwrap_or_else(|| panic!("no {message:?} event in {events:#?}"))
+                .unwrap_or_else(|| panic!("no {message:?} event from {target:?} in {events:#?}"))
         }
     }
 
@@ -60,6 +67,7 @@ mod capture {
             event.record(&mut fields);
             (self.0).0.lock().unwrap().push(Event {
                 level: *event.metadata().level(),
+                target: event.metadata().target().to_string(),
                 fields: fields.0,
             });
         }
@@ -423,7 +431,8 @@ async fn run_connection_fails_with_wrong_secret() {
     let result = run_connection(&config).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("auth rejected"));
-    let event = logs.find("auth rejected");
+    // The in-process server logs its own "auth rejected" too; this is the client's.
+    let event = logs.find_from("outpunch_client", "auth rejected");
     assert_eq!(event.level, tracing::Level::ERROR);
     assert!(event.field("reason").unwrap().contains("invalid token"));
     assert!(
@@ -792,14 +801,17 @@ async fn heartbeat_continues_while_a_slow_request_is_in_flight() {
     conn_handle.abort();
 }
 
+/// An outcome of `run_connection`, and the message, reason and level `log_end` should give it.
+type EndCase = (
+    Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    &'static str,
+    &'static str,
+    tracing::Level,
+);
+
 #[test]
 fn log_end_names_how_each_connection_ended() {
-    let cases: Vec<(
-        Result<(), Box<dyn std::error::Error + Send + Sync>>,
-        &str,
-        &str,
-        tracing::Level,
-    )> = vec![
+    let cases: Vec<EndCase> = vec![
         (
             Ok(()),
             "connection closed",

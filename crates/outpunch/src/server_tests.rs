@@ -1,6 +1,111 @@
 use super::*;
 use crate::protocol::AuthMessage;
 
+/// Records log events in memory for the current thread, so a test can assert what was logged.
+/// `#[tokio::test]` runs on one thread, so tasks the test spawns log into the same recorder.
+mod capture {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+
+    #[derive(Debug, Clone)]
+    pub struct Event {
+        pub level: tracing::Level,
+        /// The module that logged it, e.g. `outpunch_client` or `outpunch::server`.
+        pub target: String,
+        pub fields: BTreeMap<String, String>,
+    }
+
+    impl Event {
+        pub fn message(&self) -> &str {
+            self.field("message").unwrap_or("")
+        }
+
+        pub fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub struct Captured(Arc<Mutex<Vec<Event>>>);
+
+    impl Captured {
+        pub fn events(&self) -> Vec<Event> {
+            self.0.lock().unwrap().clone()
+        }
+
+        /// The first event with this message; panics with everything captured if none.
+        pub fn find(&self, message: &str) -> Event {
+            self.find_from("", message)
+        }
+
+        /// The first event with this message from a target starting with `target`.
+        pub fn find_from(&self, target: &str, message: &str) -> Event {
+            let events = self.events();
+            events
+                .iter()
+                .find(|e| e.message() == message && e.target.starts_with(target))
+                .cloned()
+                .unwrap_or_else(|| panic!("no {message:?} event from {target:?} in {events:#?}"))
+        }
+    }
+
+    struct Recorder(Captured);
+
+    impl<S: tracing::Subscriber> Layer<S> for Recorder {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+            let mut fields = Fields(BTreeMap::new());
+            event.record(&mut fields);
+            (self.0).0.lock().unwrap().push(Event {
+                level: *event.metadata().level(),
+                target: event.metadata().target().to_string(),
+                fields: fields.0,
+            });
+        }
+    }
+
+    struct Fields(BTreeMap<String, String>);
+
+    impl Visit for Fields {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_string(), value.to_string());
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .insert(field.name().to_string(), format!("{value:?}"));
+        }
+    }
+
+    /// Starts recording; recording stops when the guard is dropped.
+    pub fn start() -> (Captured, tracing::subscriber::DefaultGuard) {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::registry().with(Recorder(captured.clone()));
+        (captured, tracing::subscriber::set_default(subscriber))
+    }
+}
+
+impl capture::Captured {
+    /// Waits (up to 1 s) for an event with this message and field, for events logged by a task
+    /// that ends after the test's last await.
+    async fn wait_for(&self, message: &str, field: (&str, &str)) -> capture::Event {
+        for _ in 0..200 {
+            if let Some(event) = self
+                .events()
+                .into_iter()
+                .find(|e| e.message() == message && e.field(field.0) == Some(field.1))
+            {
+                return event;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("no {message:?} with {field:?} in {:#?}", self.events())
+    }
+}
+
 fn test_config() -> ServerConfig {
     ServerConfig {
         secret: "test-secret".to_string(),
@@ -96,6 +201,7 @@ async fn handle_request_timeout_returns_504() {
     // Drain the outgoing channel so send doesn't block
     tokio::spawn(async move { while outgoing_rx.recv().await.is_some() {} });
 
+    let (logs, _guard) = capture::start();
     let resp = server
         .handle_request(IncomingRequest {
             service: "my-service".to_string(),
@@ -109,6 +215,10 @@ async fn handle_request_timeout_returns_504() {
 
     assert_eq!(resp.status, 504);
     assert!(resp.body.as_ref().unwrap().contains("timeout"));
+    let event = logs.find("request timed out");
+    assert_eq!(event.level, tracing::Level::WARN);
+    assert_eq!(event.field("service"), Some("my-service"));
+    assert_eq!(event.field("req"), Some(short_id(&resp.request_id)));
 }
 
 #[tokio::test]
@@ -861,6 +971,7 @@ async fn cancelled_request_awaiting_response_removes_pending() {
 // future still runs cleanup_connection.
 #[tokio::test]
 async fn dropped_run_unregisters_and_fails_pending() {
+    let (logs, _guard) = capture::start();
     let server = OutpunchServer::new(test_config());
     let connection = server.create_connection();
     let mut outgoing_rx = collect_messages(&connection);
@@ -888,12 +999,18 @@ async fn dropped_run_unregisters_and_fails_pending() {
         .unwrap();
     assert_eq!(result.unwrap_err(), TunnelError::Disconnected);
     assert!(!server.is_connected("my-service").await);
+    let closed = logs.find("connection closed");
+    assert_eq!(
+        (closed.field("reason"), closed.field("failed")),
+        (Some("dropped"), Some("1"))
+    );
 }
 
 // F4 in spec/FINDINGS.md (spec/DrainDeath.cfg): if the on_message callback panics, the
 // drain task dies and the connection closes, so the service is unregistered.
 #[tokio::test]
 async fn dead_callback_unregisters_service() {
+    let (logs, _guard) = capture::start();
     let server = OutpunchServer::new(ServerConfig {
         secret: "test-secret".to_string(),
         timeout: Duration::from_millis(200),
@@ -931,6 +1048,11 @@ async fn dead_callback_unregisters_service() {
             .unwrap_err(),
         TunnelError::NotConnected
     );
+    let panicked = logs.find("outgoing message callback panicked; closing connection");
+    assert_eq!(panicked.level, tracing::Level::ERROR);
+    assert_eq!(panicked.field("service"), Some("my-service"));
+    logs.wait_for("connection closed", ("reason", "drain_died"))
+        .await;
 }
 
 /// Reads the next outgoing message, which must be a tunnel request, and returns its id.
@@ -1105,6 +1227,7 @@ async fn authed(server: &OutpunchServer) -> (Connection, mpsc::Receiver<String>)
 // waiting for the request timeout.
 #[tokio::test(start_paused = true)]
 async fn silent_client_is_evicted_after_the_idle_timeout() {
+    let (logs, _guard) = capture::start();
     let server = OutpunchServer::new(idle_config(Duration::from_secs(90)));
     let (_connection, mut outgoing_rx) = authed(&server).await;
 
@@ -1122,6 +1245,21 @@ async fn silent_client_is_evicted_after_the_idle_timeout() {
     assert_eq!(
         request.await.unwrap().unwrap_err(),
         TunnelError::Disconnected
+    );
+    let evicted = logs.find("client silent; evicting");
+    assert_eq!(evicted.level, tracing::Level::WARN);
+    assert_eq!(
+        (evicted.field("service"), evicted.field("idle_s")),
+        (Some("my-service"), Some("90"))
+    );
+    let closed = logs.find("connection closed");
+    assert_eq!(
+        (
+            closed.field("reason"),
+            closed.field("failed"),
+            closed.field("duration_s")
+        ),
+        (Some("idle"), Some("1"), Some("90"))
     );
 }
 
@@ -1147,4 +1285,100 @@ async fn messages_keep_a_client_registered() {
         connection.push_message("junk".to_string()).await;
     }
     assert!(server.is_connected("my-service").await);
+}
+
+// docs/logging.md, server events.
+#[tokio::test]
+async fn registration_and_replacement_are_logged() {
+    let (logs, _guard) = capture::start();
+    let server = OutpunchServer::new(test_config());
+    let (first, _first_rx) = authed(&server).await;
+    let registered = logs.find("service registered");
+    assert_eq!(
+        (
+            registered.level,
+            registered.field("service"),
+            registered.field("conn")
+        ),
+        (tracing::Level::INFO, Some("my-service"), Some("1"))
+    );
+    assert_eq!(logs.find("client authenticated").field("conn"), Some("1"));
+
+    let (_second, _second_rx) = authed(&server).await;
+    let replaced = logs.find("service registered; older connection replaced");
+    assert_eq!(
+        (
+            replaced.level,
+            replaced.field("conn"),
+            replaced.field("replaced")
+        ),
+        (tracing::Level::WARN, Some("2"), Some("1"))
+    );
+    let closed = logs.wait_for("connection closed", ("conn", "1")).await;
+    assert_eq!(closed.field("reason"), Some("replaced"));
+    assert_eq!(first.id(), 1);
+}
+
+#[tokio::test]
+async fn a_closed_connection_is_logged_with_reason_closed() {
+    let (logs, _guard) = capture::start();
+    let server = OutpunchServer::new(test_config());
+    let (connection, _rx) = authed(&server).await;
+    assert_eq!(connection.service().as_deref(), Some("my-service"));
+    connection.close();
+    let closed = logs.wait_for("connection closed", ("conn", "1")).await;
+    assert_eq!(
+        (closed.level, closed.field("reason"), closed.field("failed")),
+        (tracing::Level::INFO, Some("closed"), Some("0"))
+    );
+}
+
+/// Runs a connection that sends `first` as its first message; returns the rejection event.
+async fn auth_rejection(config: ServerConfig, first: String) -> capture::Event {
+    let (logs, _guard) = capture::start();
+    let server = OutpunchServer::new(config);
+    let connection = server.create_connection();
+    let mut outgoing_rx = collect_messages(&connection);
+    let run = tokio::spawn({
+        let connection = connection.clone();
+        async move { connection.run().await }
+    });
+    connection.push_message(first).await;
+    assert!(outgoing_rx.recv().await.unwrap().contains("auth_error"));
+    run.await.unwrap();
+    assert!(
+        logs.events()
+            .iter()
+            .all(|e| e.fields.values().all(|v| !v.contains("test-secret"))),
+        "a secret was logged: {:#?}",
+        logs.events()
+    );
+    logs.find("auth rejected")
+}
+
+#[tokio::test]
+async fn auth_rejections_are_logged_with_their_reason_and_without_the_token() {
+    let wrong = auth_rejection(test_config(), auth_json("not-the-secret", "svc")).await;
+    assert_eq!(
+        (wrong.level, wrong.field("reason")),
+        (tracing::Level::WARN, Some("invalid_token"))
+    );
+    let not_auth = auth_rejection(test_config(), "hello".to_string()).await;
+    assert_eq!(not_auth.field("reason"), Some("not_auth"));
+    let unset = auth_rejection(ServerConfig::default(), auth_json("test-secret", "svc")).await;
+    assert_eq!(unset.field("reason"), Some("secret_not_set"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_never_authenticates_is_logged() {
+    let (logs, _guard) = capture::start();
+    let server = OutpunchServer::new(test_config());
+    let connection = server.create_connection();
+    let _rx = collect_messages(&connection);
+    connection.run().await;
+    let event = logs.find("auth not completed");
+    assert_eq!(
+        (event.level, event.field("reason")),
+        (tracing::Level::INFO, Some("timeout"))
+    );
 }
