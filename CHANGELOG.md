@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- **Logging follows `docs/logging.md`.** The Rust crates log through `tracing`; the client CLI and the
+  axum example server print `HH:MM:SS.ffffffZ LEVEL target: message key=value` to stderr, filtered by
+  `RUST_LOG`. The client's lines change format: one `request` line per request (status, duration)
+  instead of two, and `connection closed` says why and how long it lasted. The server now logs auth,
+  registration and replacement, idle eviction, write stalls and every connection's close (reason,
+  failed requests); these are visible where a subscriber is installed (the CLI, the example server),
+  not yet through the Python, Ruby or Node packages. Secrets, bodies, headers and query strings are
+  never logged.
+
 ### Added
+
+- **Rust:** `outpunch::logging::init_stderr` (feature `stderr-logging`) and
+  `outpunch_client::init_stderr_logging`; `Connection::id()` and `Connection::service()`;
+  `outpunch_client::ConnectionError`; `protocol::short_id`.
 
 - **`just sim`**: a local simulator (`crates/outpunch-sim`, not published) that runs a server, a
   client and a stand-in service, replays traffic from a file with failure events, and shows every

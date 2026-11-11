@@ -2,8 +2,9 @@
 
 Conventions for what outpunch logs and how. Scope for now: the Rust crates (`outpunch`,
 `outpunch-axum`, `outpunch-client`) and the Rust binaries. The Python, Node and Ruby packages
-follow later. Status: **agreed conventions, not yet implemented**; `just sim` shows the current
-output (see [crates/outpunch-sim/README.md](../crates/outpunch-sim/README.md)).
+follow later. Status: **implemented for the Rust crates**. The Python and Ruby bindings print only the
+client's events, to stderr, until each routes events into its host's logging; the Node binding prints
+none. `just sim` shows the output (see [crates/outpunch-sim/README.md](../crates/outpunch-sim/README.md)).
 
 ## Mechanism
 

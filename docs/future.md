@@ -165,3 +165,31 @@ When a client process dies (SIGKILL, crash), the server logs `connection closed 
 same as a client that disconnected on purpose: the core only sees its incoming channel end. The axum
 adapter knows how the socket ended (a close frame, a reset, end of stream) and could pass that on,
 for example as `reason=client_closed` versus `reason=socket_lost`.
+
+### Logging in the Other Languages
+
+The Rust crates follow docs/logging.md; the packages for other languages do not yet:
+- **Python:** route the client's events into Python's `logging` instead of the stderr fallback.
+- **Ruby:** route events into Ruby's logger and turn on the server's events, so mordor shows
+  connections, evictions and closes (the server side of the 2026-10-24 outage). Fix the Rails
+  adapter's catch-all `rescue => e`, which logs nothing and sends `e.message` to the caller.
+- **Node:** decide how server events reach the host; stop swallowing `connection.run()` failures
+  (`.catch(() => {})` in `bindings/node/js/server.ts`).
+
+### A Stalled Client's Close Says `closed`
+
+After the axum adapter's write timeout, the server logs `connection closed reason=closed`, right
+after the `client stopped reading` warning. Same cause as "A Killed Client Looks Like a Clean
+Close": adapters cannot pass the core a reason when they close a connection.
+
+### Loose Ends
+
+- `cargo clippy --all-targets` fails on two old lints: a redundant closure in
+  `crates/outpunch-client/src/lib_tests.rs` and a single-arm `match` in
+  `crates/outpunch-axum/tests/integration.rs` (`just clippy` and CI don't use `--all-targets`).
+- The Python binding's local venv has a stale `pytest` script (it points at the repo's old path), so
+  `uv run pytest` fails locally; `uv run python -m pytest` works. CI builds a fresh venv.
+- GitHub Actions warns that `actions/checkout@v4`, `setup-node@v4`, `setup-python@v5`,
+  `upload-artifact@v4` and `astral-sh/setup-uv@v4` target the deprecated Node 20.
+- `wait_s` and `idle_s` log whole seconds, so a sub-second timeout (tests, short `just sim` runs) logs
+  `0`.
