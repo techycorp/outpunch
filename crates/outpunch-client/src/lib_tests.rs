@@ -386,7 +386,7 @@ where
         "/ws",
         axum::routing::get(move |ws: WebSocketUpgrade| {
             let handler = handler.clone();
-            async move { ws.on_upgrade(move |socket| handler(socket)) }
+            async move { ws.on_upgrade(handler) }
         }),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

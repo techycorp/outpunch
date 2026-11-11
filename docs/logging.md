@@ -41,7 +41,8 @@ One line per event: time, level, target (the module), message, then fields as `k
   varies goes in a field, never in the message, so lines can be searched and counted.
 - **Values:** identifiers, numbers and fixed words are bare (`reason=idle`); free text that can
   contain spaces (`error`, a peer's message) is quoted (`error="connection refused"`). In code: `%`
-  or a plain value for the first, `?` on a `String` for the second.
+  or a plain number for the first; a plain `&str` for the second (`error = msg.as_str()`), never `?`,
+  so hosts with structured logging get the text itself rather than its Debug form.
 - **Color:** only when stderr is a terminal; log files and platform logs get plain text.
 - **Fields** (snake_case, the same name everywhere):
 

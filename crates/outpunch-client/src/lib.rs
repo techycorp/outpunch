@@ -105,7 +105,7 @@ fn log_end(result: &Result<(), Box<dyn std::error::Error + Send + Sync>>, durati
         return;
     };
     match e.downcast_ref::<ConnectionError>() {
-        Some(ConnectionError::Connect(e)) => warn!(error = ?e, "connect failed"),
+        Some(ConnectionError::Connect(e)) => warn!(error = e.as_str(), "connect failed"),
         Some(ConnectionError::AuthRejected(_)) => {
             info!(reason = %"auth_rejected", duration_s, "connection closed")
         }
@@ -115,12 +115,15 @@ fn log_end(result: &Result<(), Box<dyn std::error::Error + Send + Sync>>, durati
         Some(ConnectionError::WriteTimedOut(_)) => {
             info!(reason = %"write_timeout", duration_s, "connection closed")
         }
-        None => warn!(
-            reason = %"error",
-            duration_s,
-            error = ?e.to_string(),
-            "connection closed"
-        ),
+        None => {
+            let error = e.to_string();
+            warn!(
+                reason = %"error",
+                duration_s,
+                error = error.as_str(),
+                "connection closed"
+            )
+        }
     }
 }
 
@@ -272,7 +275,7 @@ async fn authenticate(
             Ok(())
         }
         Message::AuthError(e) => {
-            error!(reason = ?e.message, "auth rejected");
+            error!(reason = e.message.as_str(), "auth rejected");
             Err(ConnectionError::AuthRejected(e.message).into())
         }
         _ => Err("unexpected message during auth".into()),
@@ -342,10 +345,11 @@ pub async fn forward_request(
                 &format!("local service error: {e}"),
             );
             // without_url: the URL can carry the request's query string, which is never logged.
+            let error = e.without_url().to_string();
             warn!(
                 req = %short_id(&req.request_id),
                 status = 502,
-                error = ?e.without_url().to_string(),
+                error = error.as_str(),
                 "local service failed"
             );
             response

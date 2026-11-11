@@ -5,7 +5,6 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use tracing::field::{Field, Visit};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::{Context, SubscriberExt};
 
@@ -55,26 +54,18 @@ struct Recorder(Captured);
 
 impl<S: tracing::Subscriber> Layer<S> for Recorder {
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-        let mut fields = Fields(BTreeMap::new());
-        event.record(&mut fields);
+        let recorded = crate::logging::Fields::of(event);
+        let mut fields: BTreeMap<String, String> = recorded
+            .fields
+            .into_iter()
+            .map(|(name, value)| (name, value.to_string()))
+            .collect();
+        fields.insert("message".to_string(), recorded.message);
         (self.0).0.lock().unwrap().push(Event {
             level: *event.metadata().level(),
             target: event.metadata().target().to_string(),
-            fields: fields.0,
+            fields,
         });
-    }
-}
-
-struct Fields(BTreeMap<String, String>);
-
-impl Visit for Fields {
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.0.insert(field.name().to_string(), value.to_string());
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        self.0
-            .insert(field.name().to_string(), format!("{value:?}"));
     }
 }
 

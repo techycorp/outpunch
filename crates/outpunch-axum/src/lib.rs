@@ -136,11 +136,14 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
                 tokio::time::timeout(write_timeout, ws_sink.send(WsMessage::text(msg))).await;
             match written {
                 Ok(Ok(())) => continue,
-                Ok(Err(e)) => debug!(
-                    conn = conn_for_write.id(),
-                    error = ?e.to_string(),
-                    "socket write failed"
-                ),
+                Ok(Err(e)) => {
+                    let error = e.to_string();
+                    debug!(
+                        conn = conn_for_write.id(),
+                        error = error.as_str(),
+                        "socket write failed"
+                    )
+                }
                 Err(_) => warn!(
                     conn = conn_for_write.id(),
                     service = %conn_for_write.service().unwrap_or_else(|| "-".into()),

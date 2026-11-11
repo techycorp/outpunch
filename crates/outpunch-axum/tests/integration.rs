@@ -202,13 +202,12 @@ async fn rejects_invalid_auth_token() {
     let mut got_auth_error = false;
     while let Some(msg) = stream.next().await {
         match msg {
-            Ok(WsMessage::Text(text)) => match protocol::parse_message(&text) {
-                Ok(Message::AuthError(e)) => {
+            Ok(WsMessage::Text(text)) => {
+                if let Ok(Message::AuthError(e)) = protocol::parse_message(&text) {
                     assert!(e.message.contains("invalid token"));
                     got_auth_error = true;
                 }
-                _ => {}
-            },
+            }
             Ok(WsMessage::Close(_)) => break,
             Err(_) => break,
             _ => continue,
