@@ -4,13 +4,7 @@ use outpunch::server::{OutpunchServer, ServerConfig};
 
 #[tokio::main]
 async fn main() {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
-        .with_env_filter(filter)
-        .init();
+    outpunch::logging::init_stderr("info");
     let secret = std::env::var("OUTPUNCH_SECRET").unwrap_or_else(|_| "dev-secret".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
 

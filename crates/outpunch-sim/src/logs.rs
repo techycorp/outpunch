@@ -44,8 +44,18 @@ impl Logs {
 }
 
 impl Log {
-    /// Writes the line to this component's file and to `all.log`, and prints it to the
-    /// simulator's stdout so the run can be watched live.
+    /// A line from the simulator itself (sim, service), in the same shape as outpunch's own:
+    /// `<time of day> <LEVEL> <text>`.
+    pub fn info(&self, text: &str) {
+        self.line(&own_line("INFO", text));
+    }
+
+    pub fn warn(&self, text: &str) {
+        self.line(&own_line("WARN", text));
+    }
+
+    /// A line exactly as given (a child process's output). Writes it to this component's file
+    /// and to `all.log`, and prints it to the simulator's stdout so the run can be watched live.
     pub fn line(&self, text: &str) {
         let at = self.logs.elapsed_ms();
         let merged = format!("+{at:>7}ms {:<7} | {text}", self.name);
@@ -53,6 +63,11 @@ impl Log {
         let _ = writeln!(lock(&self.logs.all), "{merged}");
         println!("{merged}");
     }
+}
+
+fn own_line(level: &str, text: &str) -> String {
+    let time = outpunch::logging::time_of_day(std::time::SystemTime::now());
+    format!("{time} {level:>5} {text}")
 }
 
 fn lock(file: &Mutex<File>) -> std::sync::MutexGuard<'_, File> {

@@ -87,7 +87,7 @@ async fn run(args: Args) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     let server_port = free_port().map_err(|e| e.to_string())?;
-    sim.line(&format!(
+    sim.info(&format!(
         "{} steps from {}; service on :{service_port}, server on :{server_port}",
         steps.len(),
         args.traffic.display()
@@ -104,7 +104,7 @@ async fn run(args: Args) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     wait_for_tunnel(&http, &base).await?;
-    sim.line("tunnel up; replaying (at_ms counts from now)");
+    sim.info("tunnel up; replaying (at_ms counts from now)");
 
     let procs = Arc::new(Mutex::new(Procs { server, client }));
     let up = Instant::now();
@@ -125,8 +125,8 @@ async fn run(args: Args) -> Result<(), String> {
     std::fs::write(args.out.join("results.ndjson"), results).map_err(|e| e.to_string())?;
     std::fs::write(args.out.join("summary.txt"), format!("{summary}\n"))
         .map_err(|e| e.to_string())?;
-    sim.line(&summary);
-    sim.line(&format!("logs in {}", args.out.display()));
+    sim.info(&summary);
+    sim.info(&format!("logs in {}", args.out.display()));
     Ok(())
 }
 
@@ -210,15 +210,20 @@ async fn send(
         Ok(response) => (Some(response.status().as_u16()), None),
         Err(e) => (None, Some(e.to_string())),
     };
-    sim.line(&format!(
-        "line {line}: {} {} -> {} in {latency_ms} ms",
-        request.method,
-        request.path,
-        status.map_or_else(
-            || format!("error ({})", error.as_deref().unwrap_or("")),
-            |s| s.to_string()
-        )
-    ));
+    let failed = status.is_none_or(|s| s >= 500);
+    let report = if failed { Log::warn } else { Log::info };
+    report(
+        sim,
+        &format!(
+            "line {line}: {} {} -> {} in {latency_ms} ms",
+            request.method,
+            request.path,
+            status.map_or_else(
+                || format!("error ({})", error.as_deref().unwrap_or("")),
+                |s| s.to_string()
+            )
+        ),
+    );
     Outcome {
         line,
         method: request.method,
@@ -233,22 +238,22 @@ async fn send(
 async fn apply(event: Event, procs: &Arc<Mutex<Procs>>, sim: &Log) {
     match event {
         Event::ClientPause { ms } => {
-            sim.line(&format!("event: pausing the client for {ms} ms (SIGSTOP)"));
+            sim.info(&format!("event: pausing the client for {ms} ms (SIGSTOP)"));
             let _ = procs.lock().await.client.signal("STOP").await;
             tokio::time::sleep(Duration::from_millis(ms)).await;
             let _ = procs.lock().await.client.signal("CONT").await;
-            sim.line("event: client resumed (SIGCONT)");
+            sim.info("event: client resumed (SIGCONT)");
         }
         Event::ClientRestart => {
-            sim.line("event: killing and restarting the client");
+            sim.info("event: killing and restarting the client");
             if let Err(e) = procs.lock().await.client.restart().await {
-                sim.line(&format!("event: client restart failed: {e}"));
+                sim.info(&format!("event: client restart failed: {e}"));
             }
         }
         Event::ServerRestart => {
-            sim.line("event: killing and restarting the server");
+            sim.info("event: killing and restarting the server");
             if let Err(e) = procs.lock().await.server.restart().await {
-                sim.line(&format!("event: server restart failed: {e}"));
+                sim.info(&format!("event: server restart failed: {e}"));
             }
         }
     }

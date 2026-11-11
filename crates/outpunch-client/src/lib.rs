@@ -43,18 +43,10 @@ impl fmt::Display for ConnectionError {
 
 impl std::error::Error for ConnectionError {}
 
-/// Prints outpunch's log events to stderr (docs/logging.md, Format), filtered by `RUST_LOG` or,
-/// when that is unset, by `default_filter` (an `EnvFilter` directive such as `info`). For binaries
-/// and bindings; the library itself never calls it. Does nothing if the process already has a
-/// subscriber.
+/// Prints outpunch's log events to stderr (docs/logging.md, Format); see
+/// [`outpunch::logging::init_stderr`]. For binaries and bindings; the library itself never calls it.
 pub fn init_stderr_logging(default_filter: &str) {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
-    let _ = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
-        .with_env_filter(filter)
-        .try_init();
+    outpunch::logging::init_stderr(default_filter);
 }
 
 /// The first 8 characters of a request id, as logged.

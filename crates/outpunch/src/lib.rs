@@ -11,6 +11,8 @@ macro_rules! trace_event {
     ($($event:tt)+) => {};
 }
 
+#[cfg(feature = "stderr-logging")]
+pub mod logging;
 pub mod protocol;
 pub mod server;
 #[cfg(feature = "trace")]

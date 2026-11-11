@@ -11,8 +11,9 @@ output (see [crates/outpunch-sim/README.md](../crates/outpunch-sim/README.md)).
   [`tracing`](https://docs.rs/tracing) facade and never install a subscriber, print, or choose a
   format: outpunch runs inside other people's processes. `eprintln!` and `println!` are not used in
   library code.
-- **Binaries install the subscriber.** The client CLI and the axum example server use
-  `tracing-subscriber`'s formatter on stderr, filtered by `RUST_LOG` (default `info`).
+- **Binaries install the subscriber.** The client CLI and the axum example server call
+  `outpunch::logging::init_stderr` (feature `stderr-logging` of the `outpunch` crate; the client
+  re-exports it as `init_stderr_logging`): stderr, filtered by `RUST_LOG` (default `info`).
 - **Bindings must not go silent.** Today the client prints to stderr, and hosts such as Python rely
   on seeing those lines. When the bindings are done, each routes events into its host's logging; until
   then, a binding installs the same stderr formatter when it loads, so its output does not disappear.
@@ -21,13 +22,17 @@ output (see [crates/outpunch-sim/README.md](../crates/outpunch-sim/README.md)).
 
 ## Format
 
-One line per event: UTC timestamp, level, target (the module), message, then fields as `key=value`:
+One line per event: time, level, target (the module), message, then fields as `key=value`:
 
 ```
-2026-11-09T18:02:58.123Z  INFO outpunch::server: service registered service=sim conn=2
-2026-11-09T18:03:02.456Z  WARN outpunch::server: client silent; evicting conn=2 service=sim idle_s=90
+18:02:58.123456Z  INFO outpunch::server: service registered service=sim conn=2
+18:03:02.456789Z  WARN outpunch::server: client silent; evicting conn=2 service=sim idle_s=90
 ```
 
+- **Time:** UTC time of day with microseconds, `HH:MM:SS.ffffffZ`. Fixed width, so the level and
+  message line up; no date, since platform logs (Heroku, Kubernetes) and log files carry it, and
+  sub-millisecond ordering matters more here than the date.
+- **Level:** padded to five characters (` INFO`, ` WARN`, `ERROR`), right after the time.
 - **Message:** a short lowercase phrase saying what happened, the same text every time. Anything that
   varies goes in a field, never in the message, so lines can be searched and counted.
 - **Values:** identifiers, numbers and fixed words are bare (`reason=idle`); free text that can

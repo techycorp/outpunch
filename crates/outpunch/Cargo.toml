@@ -12,6 +12,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"], optional = true }
 uuid = { version = "1.22.0", features = ["v4"] }
 
 [dev-dependencies]
@@ -21,3 +22,6 @@ tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 [features]
 # Emit execution traces for TLA+ trace validation (spec/README.md). Off by default.
 trace = []
+# outpunch::logging: print log events to stderr in the docs/logging.md format. For binaries and
+# bindings; off by default so libraries embedding outpunch don't pull in a subscriber.
+stderr-logging = ["dep:tracing-subscriber"]

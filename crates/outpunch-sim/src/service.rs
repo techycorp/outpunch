@@ -36,7 +36,7 @@ async fn answer(log: &Log, method: Method, uri: Uri, headers: HeaderMap) -> Resp
     let delay_ms: u64 = header(DELAY_MS).and_then(|d| d.parse().ok()).unwrap_or(0);
     let body = header(BODY).unwrap_or("ok").to_string();
 
-    log.line(&format!(
+    log.info(&format!(
         "{method} {uri} (answering {} after {delay_ms} ms)",
         status.as_u16()
     ));
