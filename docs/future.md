@@ -122,3 +122,46 @@ A check that maps code to models (`server.rs` → `Tunnel.tla`, `crates/outpunch
 touching its model, unless the commit says why. See "Keeping models in step with the code" in
 `spec/README.md`.
 
+
+## Feedback
+
+Raised while reviewing logs with `just sim` during the logging work (docs/logging.md).
+
+### Stable Error Codes for Tunnel Failures
+
+An HTTP caller cannot tell outpunch's failures apart, or from the local app's own errors:
+
+| What happened | Status | Body |
+|---|---|---|
+| No client connected (core) | 502 | `{"error":"no client connected for service"}` |
+| Request could not be handed to the client | 502 | `{"error":"client connection lost"}` |
+| Client disconnected mid-request | 502 | `{"error":"client disconnected"}` |
+| Local service unreachable (client) | 502 | `{"error":"local service error: …"}` |
+| The local service itself answered 502 | 502 | whatever it sent |
+| Tunnel timeout | 504 | `{"error":"tunnel timeout"}` |
+| Local service timed out (client) | 504 | `{"error":"local service timeout"}` |
+| Rails: service offline | 502 | `"Service 'x' offline"` (the Rails adapter's own wording) |
+
+The messages differ only in free text, and by adapter, and the log events' `reason` words are a
+third vocabulary. Proposal: one stable code per failure (`not_connected`, `connection_lost`,
+`disconnected`, `timeout`, `local_unreachable`, `local_timeout`), used in three places:
+- an `X-Outpunch-Error: <code>` response header, set only on errors outpunch produced, so its
+  presence alone means "tunnel, not app" (non-breaking);
+- a `code` field in the JSON error body;
+- the `reason` of the matching log events, so a caller's error lines up with a log line.
+
+Every adapter maps its errors onto the same codes (Rails' catch-all included).
+
+### Error Bodies Are Not Escaped
+
+`protocol::error_response` builds its JSON body by pasting the message into a string
+(`format!("{{\"error\":\"{message}\"}}")`). A message containing `"` or `\` makes the body invalid
+JSON. The client's local-service errors include the HTTP library's error text, so it can happen in
+practice. Build the body with `serde_json` instead.
+
+### A Killed Client Looks Like a Clean Close
+
+When a client process dies (SIGKILL, crash), the server logs `connection closed reason=closed`, the
+same as a client that disconnected on purpose: the core only sees its incoming channel end. The axum
+adapter knows how the socket ended (a close frame, a reset, end of stream) and could pass that on,
+for example as `reason=client_closed` versus `reason=socket_lost`.
