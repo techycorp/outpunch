@@ -11,9 +11,10 @@ use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use futures_util::{SinkExt, StreamExt};
-use outpunch::protocol::IncomingRequest;
+use outpunch::protocol::{self, IncomingRequest};
 use outpunch::server::OutpunchServer;
 use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
 
 /// Build an axum Router with outpunch tunnel routes.
 pub fn router(server: OutpunchServer) -> Router {
@@ -69,6 +70,11 @@ async fn handle_tunnel(
     let body_bytes = match axum::body::to_bytes(body, server.max_body_size()).await {
         Ok(b) => b,
         Err(_) => {
+            info!(
+                service = %service,
+                limit = server.max_body_size(),
+                "request body too large"
+            );
             return (StatusCode::BAD_REQUEST, "request body too large").into_response();
         }
     };
@@ -118,14 +124,32 @@ async fn handle_ws(server: Arc<OutpunchServer>, socket: WebSocket) {
         let write_timeout = server_for_write.request_timeout();
         while let Some(msg) = msg_rx.recv().await {
             if !server_for_write.is_pending(&msg) {
+                if let Some(id) = protocol::request_id_of(&msg) {
+                    debug!(
+                        req = %protocol::short_id(&id),
+                        "dropped request whose caller was already answered"
+                    );
+                }
                 continue;
             }
             let written =
                 tokio::time::timeout(write_timeout, ws_sink.send(WsMessage::text(msg))).await;
-            if !matches!(written, Ok(Ok(()))) {
-                conn_for_write.close();
-                break;
+            match written {
+                Ok(Ok(())) => continue,
+                Ok(Err(e)) => debug!(
+                    conn = conn_for_write.id(),
+                    error = ?e.to_string(),
+                    "socket write failed"
+                ),
+                Err(_) => warn!(
+                    conn = conn_for_write.id(),
+                    service = %conn_for_write.service().unwrap_or_else(|| "-".into()),
+                    wait_s = write_timeout.as_secs(),
+                    "client stopped reading; closing connection"
+                ),
             }
+            conn_for_write.close();
+            break;
         }
     });
 

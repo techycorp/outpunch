@@ -33,6 +33,9 @@ One line per event: time, level, target (the module), message, then fields as `k
   message line up; no date, since platform logs (Heroku, Kubernetes) and log files carry it, and
   sub-millisecond ordering matters more here than the date.
 - **Level:** padded to five characters (` INFO`, ` WARN`, `ERROR`), right after the time.
+- **Debug output:** `RUST_LOG=debug` also turns on the dependencies' debug logs (hyper, reqwest,
+  tungstenite), which drown outpunch's. For outpunch's own:
+  `RUST_LOG=info,outpunch=debug,outpunch_axum=debug,outpunch_client=debug`.
 - **Message:** a short lowercase phrase saying what happened, the same text every time. Anything that
   varies goes in a field, never in the message, so lines can be searched and counted.
 - **Values:** identifiers, numbers and fixed words are bare (`reason=idle`); free text that can
@@ -92,6 +95,7 @@ The catalog. An event not listed here is added here first.
 | debug | `no client for service` | `req`, `service` |
 | debug | `ignored client message` | `conn`, `reason` |
 | debug | `dropped request whose caller was already answered` | `req` |
+| debug | `socket write failed` | `conn`, `error` (the socket was already gone; the connection closes) |
 | info | `request body too large` | `service`, `limit` |
 
 ### Client (`outpunch-client`)

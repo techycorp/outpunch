@@ -25,3 +25,5 @@ trace = []
 # outpunch::logging: print log events to stderr in the docs/logging.md format. For binaries and
 # bindings; off by default so libraries embedding outpunch don't pull in a subscriber.
 stderr-logging = ["dep:tracing-subscriber"]
+# outpunch::test_capture, for other crates' tests that assert log events. Not for production.
+test-capture = ["dep:tracing-subscriber"]

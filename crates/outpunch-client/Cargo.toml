@@ -23,6 +23,7 @@ tracing = "0.1.44"
 
 [dev-dependencies]
 axum = { version = "0.8.8", features = ["ws"] }
+outpunch = { workspace = true, features = ["test-capture"] }
 outpunch-axum = { path = "../outpunch-axum" }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs"] }

@@ -1,6 +1,7 @@
 use super::*;
 use axum::http::HeaderValue;
 use outpunch::protocol::TunnelResponse;
+use outpunch::test_capture as capture;
 
 // --- parse_query ---
 
@@ -319,6 +320,7 @@ async fn timed_out_requests_are_not_delivered_later() {
 
     const REQUESTS: usize = 200;
 
+    let (logs, _guard) = capture::start();
     let addr = serve(Duration::from_millis(500)).await;
     let mut ws = authed_client(addr).await;
 
@@ -354,6 +356,16 @@ async fn timed_out_requests_are_not_delivered_later() {
         received <= REQUESTS / 4,
         "{received} of {REQUESTS} requests reached the client after their callers got 504"
     );
+    let dropped = logs
+        .events()
+        .into_iter()
+        .filter(|e| e.message() == "dropped request whose caller was already answered")
+        .collect::<Vec<_>>();
+    assert!(
+        !dropped.is_empty(),
+        "no stale request was logged as dropped"
+    );
+    assert!(dropped.iter().all(|e| e.level == tracing::Level::DEBUG));
 }
 
 type ClientSocket =
@@ -424,6 +436,7 @@ async fn upload_all(addr: std::net::SocketAddr, n: usize) -> Vec<u16> {
 // unregistered and new requests fail fast instead of queueing.
 #[tokio::test]
 async fn client_that_stops_reading_is_disconnected() {
+    let (logs, _guard) = capture::start();
     let addr = serve(Duration::from_millis(500)).await;
     let _ws = authed_client(addr).await;
 
@@ -442,6 +455,16 @@ async fn client_that_stops_reading_is_disconnected() {
     })
     .await;
     assert!(unregistered, "the stalled client is still registered");
+    let stalled = logs.find("client stopped reading; closing connection");
+    assert_eq!(
+        (
+            stalled.level,
+            stalled.field("service"),
+            stalled.field("wait_s")
+        ),
+        (tracing::Level::WARN, Some("my-service"), Some("0"))
+    );
+    assert_eq!(stalled.field("conn"), Some("1"));
 }
 
 // F6 in spec/FINDINGS.md (spec/AxumStalled.cfg): once a connection is over, a write task

@@ -4,6 +4,7 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use outpunch::protocol::{self, AuthMessage, Message};
 use outpunch::server::{OutpunchServer, ServerConfig};
+use outpunch::test_capture as capture;
 use tokio::net::TcpListener;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -421,6 +422,7 @@ async fn tunnel_request_forwards_headers() {
 
 #[tokio::test]
 async fn returns_400_when_body_exceeds_max_size() {
+    let (logs, _guard) = capture::start();
     let server = OutpunchServer::new(ServerConfig {
         secret: "test-secret".to_string(),
         timeout: Duration::from_secs(5),
@@ -443,6 +445,11 @@ async fn returns_400_when_body_exceeds_max_size() {
         .unwrap();
 
     assert_eq!(resp.status(), 400);
+    let event = logs.find("request body too large");
+    assert_eq!(
+        (event.level, event.field("service"), event.field("limit")),
+        (tracing::Level::INFO, Some("my-service"), Some("100"))
+    );
 
     client_handle.abort();
 }

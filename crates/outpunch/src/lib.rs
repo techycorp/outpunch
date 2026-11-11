@@ -15,5 +15,7 @@ macro_rules! trace_event {
 pub mod logging;
 pub mod protocol;
 pub mod server;
+#[cfg(any(test, feature = "test-capture"))]
+pub mod test_capture;
 #[cfg(feature = "trace")]
 mod trace;

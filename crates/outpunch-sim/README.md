@@ -56,6 +56,12 @@ Events:
 | `{"at_ms": 2000, "event": "client_restart"}` | kill the client (no close frame) and start a new one |
 | `{"at_ms": 3000, "event": "server_restart"}` | kill the server and start a new one on the same port |
 
+## Log level
+
+The server and client log at `info`. `RUST_LOG` reaches both, so
+`RUST_LOG=info,outpunch=debug,outpunch_axum=debug,outpunch_client=debug just sim` adds outpunch's
+debug events (plain `RUST_LOG=debug` also adds the libraries' own, which are noisy).
+
 ## Timeouts
 
 The real defaults are slow to watch (request 25 s, client evicted after 90 s silent, client pings
